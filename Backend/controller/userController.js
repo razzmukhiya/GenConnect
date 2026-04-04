@@ -7,7 +7,7 @@ exports.register = async (req, res) => {
   try {
     const { fullName, email, number, dateOfBirth, gender, password } = req.body;
 
-    // Create user (password will be hashed in the model)
+    
     const userResult = await userModel.createUser(
       fullName,
       email,
@@ -17,7 +17,7 @@ exports.register = async (req, res) => {
       password
     );
 
-    // Create profile
+    
     await userModel.createProfile(userResult.id);
 
     res.status(201).json({ success: true, message: 'User registered successfully', userId: userResult.id });
@@ -211,7 +211,7 @@ exports.updateProfile = async (req, res) => {
 
 exports.sendFriendRequest = async (req, res) => {
   try {
-    const senderId = req.body.userId; // Assuming userId is sent in body or from auth middleware
+    const senderId = req.body.userId;
     const { receiverId } = req.body;
 
     if (!senderId) {
@@ -226,7 +226,35 @@ exports.sendFriendRequest = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot send friend request to yourself' });
     }
 
+    const [sender] = await db.execute('SELECT fullName FROM users WHERE id = ?', [senderId]);
+    
     await userModel.sendFriendRequest(senderId, receiverId);
+    
+    // Create notification for receiver
+    const NotificationModel = require('../models/notificationModel');
+    await NotificationModel.createNotification(
+      receiverId,
+      'friend_request',
+      senderId,
+      null,
+      null,
+      'Friend Request',
+      `${sender[0].fullName} sent you a friend request`
+    );
+
+    // Emit socket notification
+    if (global.io) {
+      global.io.to(receiverId.toString()).emit('newNotification', {
+        id: Date.now(), // temporary
+        userId: receiverId,
+        type: 'friend_request',
+        fromUserId: senderId,
+        title: 'Friend Request',
+        body: `${sender[0].fullName} sent you a friend request`,
+        created_at: new Date().toISOString()
+      });
+    }
+    
     res.json({ success: true, message: 'Friend request sent successfully' });
   } catch (error) {
     console.error('Send friend request error:', error);

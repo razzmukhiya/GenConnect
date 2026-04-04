@@ -20,6 +20,13 @@ router.delete('/friend-request/cancel/:receiverId', userController.cancelFriendR
 
 router.get('/friend-requests/:id', userController.getFriendRequests);
 router.get('/friends/:id', userController.getFriends);
+router.get('/friends/:id/online-status', (req, res) => {
+    let onlineUsers = [];
+    if (global.io && global.io.sockets && global.io.sockets.adapter && global.io.sockets.adapter.rooms) {
+        onlineUsers = Array.from(global.io.sockets.adapter.rooms.keys()).filter(room => room !== undefined && !String(room).startsWith('socket.') && !isNaN(room));
+    }
+    res.json({ success: true, onlineFriends: onlineUsers });
+});
 router.delete('/friends/:friendId', userController.removeFriend);
 router.get('/friendship-status/:otherUserId', userController.getFriendshipStatus);
 

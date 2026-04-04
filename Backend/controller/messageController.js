@@ -64,7 +64,40 @@ exports.sendMessage = async (req, res) => {
       [result.insertId]
     );
 
-    res.status(201).json({ success: true, message: messages[0] });
+    const newMessage = messages[0];
+
+    // Create notification for receiver
+    const NotificationModel = require('../models/notificationModel');
+    await NotificationModel.createNotification(
+      receiverId, 
+      'message', 
+      senderId, 
+      null, 
+      newMessage.id,
+      'New Message', 
+      `New message from ${newMessage.senderName}`
+    );
+
+    // Emit to both sender and receiver rooms via socket
+    if (global.io) {
+      global.io.to(senderId.toString()).to(receiverId.toString()).emit('newMessage', {
+        ...newMessage,
+        room: `${Math.min(senderId, receiverId)}-${Math.max(senderId, receiverId)}`
+      });
+      
+      // Emit notification to receiver only
+      global.io.to(receiverId.toString()).emit('newNotification', {
+        id: newMessage.id,
+        userId: receiverId,
+        type: 'message',
+        fromUserId: senderId,
+        title: 'New Message',
+        body: `New message from ${newMessage.senderName}`,
+        created_at: newMessage.created_at
+      });
+    }
+
+    res.status(201).json({ success: true, message: newMessage });
   } catch (error) {
     console.error('Send message error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
@@ -121,12 +154,21 @@ exports.markAsRead = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User ID and Friend ID required' });
     }
 
-    await db.execute(
+    const [result] = await db.execute(
       'UPDATE messages SET is_read = TRUE WHERE receiver_id = ? AND sender_id = ? AND is_read = FALSE',
       [userId, friendId]
     );
 
-    res.json({ success: true, message: 'Messages marked as read' });
+    // Emit socket event to sender
+    if (global.io) {
+      global.io.to(friendId).emit('messagesSeen', {
+        receiverId: userId,
+        senderId: friendId,
+        count: result.affectedRows
+      });
+    }
+
+    res.json({ success: true, message: 'Messages marked as read', count: result.affectedRows });
   } catch (error) {
     console.error('Mark as read error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
