@@ -1,0 +1,407 @@
+/* AdminNavbar.css - Modern and Clean Header Design */
+
+:root {
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --glass-bg: rgba(255, 255, 255, 0.95);
+  --text-dark: #2c3e50;
+  --text-muted: #7f8c8d;
+  --accent-color: #667eea;
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.15);
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.admin-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-soft);
+  z-index: 1000;
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+  animation: slideDown 0.5s ease-out;
+}
+
+.admin-navbar-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+/* Left Section - Logo & Search */
+.admin-navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.admin-navbar-logo a {
+  font-size: 1.75rem;
+  font-weight: 700;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-decoration: none;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-navbar-logo a::before {
+  content: "⚡";
+  -webkit-text-fill-color: #667eea;
+  font-size: 1.5rem;
+}
+
+.admin-navbar-logo a:hover {
+  transform: scale(1.05);
+  filter: brightness(1.1);
+}
+
+/* Search Bar - Modern Design */
+.admin-navbar-search {
+  display: flex;
+  align-items: center;
+  background: rgba(236, 240, 241, 0.6);
+  border-radius: 50px;
+  padding: 0.5rem 1rem;
+  border: 2px solid transparent;
+  transition: var(--transition);
+  min-width: 300px;
+}
+
+.admin-navbar-search:focus-within {
+  background: white;
+  border-color: #667eea;
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+.search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 0.25rem 0.5rem;
+  color: var(--text-dark);
+  font-size: 0.95rem;
+  flex: 1;
+  font-weight: 500;
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Right Section - Notifications & Profile */
+.admin-navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* Notification Button - Modern Style */
+.notification-icon {
+  position: relative;
+}
+
+.notification-btn {
+  background: rgba(102, 126, 234, 0.1);
+  border: none;
+  cursor: pointer;
+  color: var(--text-dark);
+  transition: var(--transition);
+  padding: 0.75rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.notification-btn:hover {
+  background: rgba(102, 126, 234, 0.2);
+  transform: translateY(-2px);
+}
+
+.notification-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: rgba(102, 126, 234, 0.3);
+  transform: translate(-50%, -50%) scale(0.8);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+
+.notification-btn:hover::after {
+  animation: pulse-ring 0.6s ease-out;
+}
+
+.notification-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: linear-gradient(135deg, #f5576c, #f093fb);
+  color: white;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(245, 87, 108, 0.4);
+  border: 2px solid white;
+}
+
+/* Admin Profile - Modern Card Design */
+.admin-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  position: relative;
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  transition: var(--transition);
+  background: rgba(236, 240, 241, 0.4);
+  border: 1px solid transparent;
+  height: 20px;
+}
+
+.admin-profile:hover {
+  background: white;
+  border-color: rgba(102, 126, 234, 0.2);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-2px);
+}
+
+.profile-avatar {
+  width: 28px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--primary-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 0.7rem;
+  border: 2px solid white;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+  flex-shrink: 0;
+}
+
+
+
+.profile-avatar img {
+  width: 20px;
+  height: 10px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.profile-name {
+  font-weight: 600;
+  color: var(--text-dark);
+  font-size: 0.95rem;
+}
+
+.profile-role {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Profile Dropdown - Glassmorphism */
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  border-radius: 16px;
+  box-shadow: var(--shadow-hover);
+  min-width: 200px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px) scale(0.95);
+  transition: var(--transition);
+  z-index: 1001;
+  overflow: hidden;
+}
+
+.profile-dropdown.active {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  color: var(--text-dark);
+  text-decoration: none;
+  transition: var(--transition);
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(236, 240, 241, 0.5);
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item::before {
+  font-size: 1.1rem;
+}
+
+.dropdown-item:nth-child(1)::before {
+  content: "👤";
+}
+
+.dropdown-item:nth-child(2)::before {
+  content: "⚙️";
+}
+
+.dropdown-item:hover {
+  background: rgba(102, 126, 234, 0.08);
+  color: var(--accent-color);
+  padding-left: 1.5rem;
+}
+
+.dropdown-item.logout-btn {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-dark);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dropdown-item.logout-btn::before {
+  content: "🚪";
+}
+
+.dropdown-item.logout-btn:hover {
+  background: rgba(231, 76, 60, 0.08);
+  color: #e74c3c;
+  padding-left: 1.5rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .admin-navbar {
+    padding: 0.75rem 1.5rem;
+  }
+
+  .admin-navbar-search {
+    min-width: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-navbar {
+    padding: 0.75rem 1rem;
+  }
+
+  .admin-navbar-left {
+    gap: 1rem;
+  }
+
+  .admin-navbar-search {
+    display: none;
+  }
+
+  .admin-navbar-right {
+    gap: 1rem;
+  }
+
+  .profile-info {
+    display: none;
+  }
+
+  .admin-profile {
+    padding: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-navbar-logo a {
+    font-size: 1.4rem;
+  }
+
+  .admin-navbar-logo a::before {
+    font-size: 1.2rem;
+  }
+
+  .notification-btn {
+    padding: 0.6rem;
+  }
+
+  .profile-avatar {
+    width: 26px;
+    height: 26px;
+    font-size: 0.65rem;
+    border-width: 2px;
+  }
+
+
+  .notification-badge {
+    width: 16px;
+    height: 16px;
+    font-size: 0.65rem;
+  }
+}
