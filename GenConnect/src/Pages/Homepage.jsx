@@ -14,7 +14,7 @@ const Homepage = () => {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [likedPosts, setLikedPosts] = useState(new Set());
-
+//
   const currentUser = JSON.parse(localStorage.getItem('user')) || { id: 1, fullName: 'Your Name' };
 
   useEffect(() => {
