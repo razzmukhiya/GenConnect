@@ -12,7 +12,6 @@ import Reports from './Pages/Admin/Reports';
 import Users from './Pages/Users/Users';
 import UserProfile from './Components/Users/UserProfile';
 import Notifications from './Pages/Notifications';
-  
 
 // Placeholder components for admin routes
 const PlaceholderComponent = ({ title }) => (
