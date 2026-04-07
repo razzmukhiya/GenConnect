@@ -4,6 +4,12 @@ const cors = require("cors");
 const db = require("./db/connection");
 const { createServer } = require('http');
 const { Server } = require('socket.io');
+const usersRouter = require("./routes/usersRoutes");
+const messagesRouter = require("./routes/messagesRoutes");
+const postsRouter = require("./routes/postsRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const notificationsRoutes = require("./routes/notificationsRoutes");
+const publicAdminRoutes = require("./routes/publicAdminRoutes");
 
 const app = express();
 
@@ -21,17 +27,11 @@ db.getConnection()
 app.use(cors());
 app.use(express.json());
 
-// Import CommonJS routes dynamically
-const usersRouter = require("./routes/usersRoutes");
-const messagesRouter = require("./routes/messagesRoutes");
-const postsRouter = require("./routes/postsRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const notificationsRoutes = require("./routes/notificationsRoutes");
-
 app.use('/api', usersRouter);
 app.use('/api', messagesRouter);
 app.use('/api', postsRouter);
 app.use('/api', notificationsRoutes);
+app.use('/api/admin/public', publicAdminRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Socket.io

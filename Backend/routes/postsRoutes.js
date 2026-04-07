@@ -24,4 +24,6 @@ router.post('/posts/:postId/comments', postController.addComment);
 
 router.get('/posts/:postId/comments', postController.getComments);
 
+router.post('/posts/:postId/report', require('../controller/reportController').createReport);
+
 module.exports = router;
