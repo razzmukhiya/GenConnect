@@ -8,11 +8,14 @@ import '../../Styles/Admins.css';
 const Admins = () => {
   const navigate = useNavigate();
   const [showAddPopup, setShowAddPopup] = useState(false);
+  const [showEditPopup, setShowEditPopup] = useState(false);
+  const [editingAdmin, setEditingAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [newAdmin, setNewAdmin] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'Admin',
     status: 'Active'
   });
@@ -67,9 +70,23 @@ const Admins = () => {
     }
   };
 
-
   const handleAddAdmin = () => {
     setShowAddPopup(true);
+  };
+
+  const handleEdit = (admin) => {
+    setEditingAdmin({
+      ...admin,
+      name: admin.name,
+      role: admin.role,
+      status: admin.status
+    });
+    setShowEditPopup(true);
+  };
+
+  const handleCloseEditPopup = () => {
+    setShowEditPopup(false);
+    setEditingAdmin(null);
   };
 
   const handleClosePopup = () => {
@@ -77,6 +94,7 @@ const Admins = () => {
     setNewAdmin({
       name: '',
       email: '',
+      password: '',
       role: 'Admin',
       status: 'Active'
     });
@@ -84,10 +102,17 @@ const Admins = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setNewAdmin((prev) => ({
-      ...prev,
-      [name]: value
-    }));
+    if (showEditPopup && editingAdmin) {
+      setEditingAdmin((prev) => ({
+        ...prev,
+        [name]: value
+      }));
+    } else {
+      setNewAdmin((prev) => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -104,6 +129,7 @@ const Admins = () => {
         body: JSON.stringify({
           fullName: newAdmin.name,
           email: newAdmin.email,
+          password: newAdmin.password || 'default123',
           role: newAdmin.role.toLowerCase(),
         }),
       });
@@ -119,6 +145,40 @@ const Admins = () => {
       }
     } catch (err) {
       console.error('Error creating admin:', err);
+      setError('Network error. Please check your connection.');
+    }
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('adminToken');
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/admin/admins/${editingAdmin.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          fullName: editingAdmin.name,
+          email: editingAdmin.email,
+          password: editingAdmin.password || '',
+          role: editingAdmin.role.toLowerCase(),
+          isActive: editingAdmin.status === 'Active'
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        fetchAdmins(token);
+        handleCloseEditPopup();
+      } else {
+        setError(data.message || 'Failed to update admin');
+      }
+    } catch (err) {
+      console.error('Error updating admin:', err);
       setError('Network error. Please check your connection.');
     }
   };
@@ -151,7 +211,6 @@ const Admins = () => {
       setError('Network error. Please check your connection.');
     }
   };
-
 
   return (
     <div>
@@ -226,7 +285,7 @@ const Admins = () => {
                             </span>
                           </td>
                           <td>
-                            <button className="action-btn-small">
+                            <button className="action-btn-small" onClick={() => handleEdit(admin)}>
                               <MdEdit />
                             </button>
                             <button 
@@ -243,7 +302,6 @@ const Admins = () => {
                 </table>
               </div>
             )}
-
 
           </div>
         </div>
@@ -282,6 +340,18 @@ const Admins = () => {
                   value={newAdmin.email}
                   onChange={handleInputChange}
                   required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password">Password</label>
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  value={newAdmin.password}
+                  onChange={handleInputChange}
+                  placeholder="Leave blank for default"
                 />
               </div>
 
@@ -326,6 +396,86 @@ const Admins = () => {
               </div>
             </form>
 
+            {/* Edit Admin Popup - Top Level */}
+            {showEditPopup && editingAdmin && (
+              <div className="popup-overlay">
+                <div className="popup-content">
+                  <div className="popup-header">
+                    <h2>Edit Admin</h2>
+                    <button className="close-btn" onClick={handleCloseEditPopup}>
+                      <MdClose />
+                    </button>
+                  </div>
+                  <form onSubmit={handleEditSubmit} className="add-admin-form">
+                    <div className="form-group">
+                      <label htmlFor="edit-name">Name</label>
+                      <input
+                        type="text"
+                        id="edit-name"
+                        name="name"
+                        value={editingAdmin.name}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="edit-email">Email</label>
+                      <input
+                        type="email"
+                        id="edit-email"
+                        name="email"
+                        value={editingAdmin.email}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="edit-role">Role</label>
+                      <select
+                        id="edit-role"
+                        name="role"
+                        value={editingAdmin.role}
+                        onChange={handleInputChange}
+                      >
+                        <option value="Admin">Admin</option>
+                        <option value="Moderator">Moderator</option>
+                        <option value="Super Admin">Super Admin</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="edit-password">Password (optional)</label>
+                      <input
+                        type="password"
+                        id="edit-password"
+                        name="password"
+                        placeholder="New password (leave blank to keep current)"
+                        onChange={handleInputChange}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="edit-status">Status</label>
+                      <select
+                        id="edit-status"
+                        name="status"
+                        value={editingAdmin.status}
+                        onChange={handleInputChange}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </div>
+                    <div className="form-actions">
+                      <button type="button" className="cancel-btn" onClick={handleCloseEditPopup}>
+                        Cancel
+                      </button>
+                      <button type="submit" className="submit-btn">
+                        Update Admin
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -334,3 +484,4 @@ const Admins = () => {
 };
 
 export default Admins;
+

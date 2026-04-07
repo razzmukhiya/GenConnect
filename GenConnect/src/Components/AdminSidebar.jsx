@@ -8,7 +8,8 @@ import {
   MdMenu,
   MdClose,
   MdAssessment,
-  MdSupportAgent
+  MdSupportAgent,
+  MdPersonAdd
 } from 'react-icons/md';
 
 

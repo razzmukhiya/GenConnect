@@ -12,6 +12,8 @@ import Reports from './Pages/Admin/Reports';
 import Users from './Pages/Users/Users';
 import UserProfile from './Components/Users/UserProfile';
 import Notifications from './Pages/Notifications';
+import AdminRegister from './Pages/Admin/AdminRegister';
+import EditAdmin from './Pages/Admin/EditAdmin';
 
 // Placeholder components for admin routes
 const PlaceholderComponent = ({ title }) => (
@@ -31,12 +33,15 @@ function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path='/admin/addadmin' element={<AdminRegister />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/admins" element={<Admins />} />
         <Route path="/admin/users" element={<Users />} />
         <Route path="/admin/reports" element={<Reports />} />
         <Route path="/admin/supports" element={<PlaceholderComponent title="Supports" />} />
         <Route path="/admin/profile" element={<PlaceholderComponent title="Admin Profile" />} />
+        <Route path="/admin/register" element={<AdminRegister />} />
+        <Route path="/admin/edit-admin/:id" element={<EditAdmin />} />
         <Route path="/admin/settings" element={<PlaceholderComponent title="Admin Settings" />} />
         <Route path="/profile/:id" element={<UserProfile />} />
         <Route path="/notifications" element={<Notifications />} />

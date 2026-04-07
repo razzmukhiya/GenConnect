@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare } from 'react-icons/fa';
+import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare, FaFlag } from 'react-icons/fa';
 import Navbar from '../Components/Navbar';
 import '../Styles/Homepage.css';
 
@@ -14,8 +14,21 @@ const Homepage = () => {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [likedPosts, setLikedPosts] = useState(new Set());
+  const [reportedPosts, setReportedPosts] = useState(new Set());
+  const [reportModal, setReportModal] = useState({ open: false, postId: null });
+  const [reportReason, setReportReason] = useState('spam');
+  const [otherReason, setOtherReason] = useState('');
 //
   const currentUser = JSON.parse(localStorage.getItem('user')) || { id: 1, fullName: 'Your Name' };
+
+  const reportReasons = [
+    'spam',
+    'harassment',
+    'inappropriate_content',
+    'violence',
+    'misinformation',
+    'other'
+  ];
 
   useEffect(() => {
     fetchPosts();
@@ -182,6 +195,64 @@ const Homepage = () => {
     }
   };
 
+  const handleReportClick = (postId) => {
+    setReportModal({ open: true, postId });
+    setReportReason('spam');
+    setOtherReason('');
+  };
+
+  const handleReportClose = () => {
+    setReportModal({ open: false, postId: null });
+    setReportReason('spam');
+    setOtherReason('');
+  };
+
+  const handleReportSubmit = async (e) => {
+    e.preventDefault();
+    if (!reportReason || (reportReason === 'other' && !otherReason.trim())) {
+      setError('Please select a reason or provide details for "Other"');
+      return;
+    }
+
+    const finalReason = reportReason === 'other' ? otherReason.trim() : reportReason;
+
+    try {
+      setError(null);
+      const response = await fetch(\`\${API_BASE_URL}/posts/\${reportModal.postId}/report\`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reporterId: currentUser.id,
+          reason: finalReason,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setReportedPosts(prev => new Set([...prev, reportModal.postId]));
+        setError('Post reported successfully');
+        handleReportClose();
+      } else {
+        setError(data.message || 'Failed to report post');
+      }
+    } catch (err) {
+      console.error('Error reporting post:', err);
+      setError('Error connecting to server. Please try again.');
+    }
+  };
+
+  const reportReasons = [
+    { value: 'spam', label: 'Spam' },
+    { value: 'harassment', label: 'Harassment or bullying' },
+    { value: 'inappropriate_content', label: 'Inappropriate content' },
+    { value: 'violence', label: 'Violent or dangerous' },
+    { value: 'misinformation', label: 'Misinformation' },
+    { value: 'other', label: 'Other' },
+  ];
+
   return (
     <>
       <Navbar />
@@ -267,6 +338,20 @@ const Homepage = () => {
                         <button className="action-btn share-btn" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                           <FaShare /> Share
                         </button>
+                        <button 
+                          className="action-btn report-btn" 
+                          onClick={() => handleReportClick(post.id)}
+                          disabled={reportedPosts.has(post.id)}
+                          style={{ 
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            opacity: reportedPosts.has(post.id) ? 0.5 : 1,
+                            cursor: reportedPosts.has(post.id) ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          <FaFlag /> {reportedPosts.has(post.id) ? 'Reported' : 'Report'}
+                        </button>
                       </div>
                     </div>
                   ))
@@ -322,6 +407,59 @@ const Homepage = () => {
                 </div>
                 <button type="submit" className="post-submit-btn" disabled={(!postContent.trim() && !selectedImage) || submitting}>
                   {submitting ? 'Posting...' : 'Post'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {reportModal.open && (
+        <div className="modal-overlay" onClick={handleReportClose}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Report Post</h3>
+              <button className="modal-close" onClick={handleReportClose}>×</button>
+            </div>
+            <form onSubmit={handleReportSubmit}>
+              <div className="modal-body">
+                <div className="post-author">
+                  <div className="create-post-avatar">
+                    R
+                  </div>
+                  <span>Report this post</span>
+                </div>
+                <div className="report-reason-section">
+                  <label className="report-label">Why are you reporting this post?</label>
+                  <select 
+                    value={reportReason} 
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="modal-select"
+                  >
+                    <option value="spam">Spam</option>
+                    <option value="harassment">Harassment or bullying</option>
+                    <option value="inappropriate_content">Inappropriate content</option>
+                    <option value="violence">Violent or dangerous</option>
+                    <option value="misinformation">Misinformation</option>
+                    <option value="other">Other</option>
+                  </select>
+                  {reportReason === 'other' && (
+                    <textarea
+                      value={otherReason}
+                      onChange={(e) => setOtherReason(e.target.value)}
+                      placeholder="Please provide details..."
+                      className="modal-textarea"
+                      rows="3"
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="modal-cancel-btn" onClick={handleReportClose}>
+                  Cancel
+                </button>
+                <button type="submit" className="post-submit-btn report-submit-btn">
+                  Report Post
                 </button>
               </div>
             </form>
