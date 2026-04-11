@@ -5,7 +5,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { server } from '../../server.js';
 import Navbar from '../Components/Navbar';
 import '../Styles/Signup.css';
-
+import { generateKeyPair } from '../utils/crypto.js';
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -31,6 +31,19 @@ const Signup = () => {
 
     try {
       const response = await axios.post(`${server}/signup`, formData);
+      const token = response.data.token;
+      const userId = response.data.userId;
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify({ id: userId }));
+      // Gen E2EE keys if not exist (client-side)
+      if (!localStorage.getItem('localPrivateKey')) {
+        const keys = await generateKeyPair();
+        localStorage.setItem('localPrivateKey', keys.privateKey);
+        await axios.put(`${server}/users/${userId}/keys`, { publicKey: keys.publicKey }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.info('E2EE keys generated client-side');
+      }
       toast.success('Signup successful! Please log in.');
       // Reset form
       setFormData({
@@ -41,6 +54,7 @@ const Signup = () => {
         gender: '',
         password: ''
       });
+
     } catch (error) {
       if (error.response) {
         toast.error(error.response.data.message || 'Signup failed');

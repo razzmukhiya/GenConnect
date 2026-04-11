@@ -27,11 +27,13 @@ const messagesRouter = require("./routes/messagesRoutes");
 const postsRouter = require("./routes/postsRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const notificationsRoutes = require("./routes/notificationsRoutes");
+const publicAdminRoutes = require("./routes/publicAdminRoutes");
 
 app.use('/api', usersRouter);
 app.use('/api', messagesRouter);
 app.use('/api', postsRouter);
 app.use('/api', notificationsRoutes);
+app.use('/api/admin/public', publicAdminRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Socket.io
@@ -46,12 +48,14 @@ const io = new Server(httpServer, {
 const onlineUsers = new Set();
 
 io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    console.log('🔌 Socket CONNECTED:', socket.id, 'from IP:', socket.handshake.address.address);
     
     socket.on('join', (userId) => {
-        socket.join(userId);
+        console.log('🏠 JOIN REQUEST:', userId, 'current rooms before:', Array.from(socket.rooms));
+        socket.join(userId.toString());
         onlineUsers.add(userId);
-        console.log(`User ${userId} joined room ${userId}`);
+        console.log(`✅ User ${userId} JOINED room ${userId.toString()}, now in rooms:`, Array.from(socket.rooms));
+        console.log('📊 Online users:', Array.from(onlineUsers));
         
         // Broadcast online status change
         socket.broadcast.emit('userOnline', userId);
@@ -59,16 +63,16 @@ io.on('connection', (socket) => {
     });
     
     socket.on('disconnect', () => {
-        // Find which userId this socket was for (simplified - use socket rooms in production)
         const rooms = Array.from(socket.rooms);
         const userRoom = rooms.find(room => room !== socket.id);
+        console.log('🔌 DISCONNECT:', socket.id, 'was in rooms:', rooms, 'userRoom:', userRoom);
         if (userRoom) {
             onlineUsers.delete(userRoom);
-            console.log(`User ${userRoom} disconnected`);
+            console.log(`👋 User ${userRoom} DISCONNECTED`);
             io.emit('userOffline', userRoom);
             io.emit('onlineUsers', Array.from(onlineUsers));
         } else {
-            console.log('User disconnected:', socket.id);
+            console.log('❓ Unknown user disconnected:', socket.id);
         }
     });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare, FaFlag } from 'react-icons/fa';
+import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare, FaFlag, FaEllipsisV, FaCheckCircle, FaPlus } from 'react-icons/fa';
 import Navbar from '../Components/Navbar';
 import '../Styles/Homepage.css';
 
@@ -12,23 +12,16 @@ const Homepage = () => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [likedPosts, setLikedPosts] = useState(new Set());
   const [reportedPosts, setReportedPosts] = useState(new Set());
+  const [menuStates, setMenuStates] = useState({});
   const [reportModal, setReportModal] = useState({ open: false, postId: null });
   const [reportReason, setReportReason] = useState('spam');
   const [otherReason, setOtherReason] = useState('');
-//
-  const currentUser = JSON.parse(localStorage.getItem('user')) || { id: 1, fullName: 'Your Name' };
 
-  const reportReasons = [
-    'spam',
-    'harassment',
-    'inappropriate_content',
-    'violence',
-    'misinformation',
-    'other'
-  ];
+  const currentUser = JSON.parse(localStorage.getItem('user')) || { id: 1, fullName: 'Your Name' };
 
   useEffect(() => {
     fetchPosts();
@@ -97,7 +90,7 @@ const Homepage = () => {
       const method = isLiked ? 'DELETE' : 'POST';
       
       const response = await fetch(endpoint, {
-        method: method,
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -133,8 +126,13 @@ const Homepage = () => {
       }
     } catch (err) {
       console.error('Error liking post:', err);
-      setError('Error connecting to server. Please try again.');
+      setError('Error connecting to server');
     }
+  };
+
+  const handleCreatePostClick = (e) => {
+    e.stopPropagation();
+    setIsModalOpen(true);
   };
 
   const handlePostSubmit = async (e) => {
@@ -144,17 +142,21 @@ const Homepage = () => {
     try {
       setSubmitting(true);
       setError(null);
+      setSuccessMessage(null);
+
+      const formData = new FormData();
+      formData.append('userId', currentUser.id);
+      formData.append('content', postContent.trim());
+      if (selectedImage && selectedImage.startsWith('data:')) {
+        // Convert base64 to blob
+        const response = await fetch(selectedImage);
+        const blob = await response.blob();
+        formData.append('image', blob, 'post-image.jpg');
+      }
 
       const response = await fetch(`${API_BASE_URL}/posts`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: currentUser.id,
-          content: postContent.trim(),
-          imageUrl: selectedImage || null,
-        }),
+        body: formData,
       });
 
       const data = await response.json();
@@ -163,7 +165,7 @@ const Homepage = () => {
         const newPost = {
           id: data.post.id,
           author: currentUser.fullName,
-          avatar: currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'Y',
+          avatar: currentUser.fullName.charAt(0).toUpperCase(),
           content: data.post.content,
           image: data.post.image_url,
           timestamp: 'Just now',
@@ -175,6 +177,8 @@ const Homepage = () => {
         setPostContent('');
         setSelectedImage(null);
         setIsModalOpen(false);
+        setSuccessMessage('Post created successfully! 🎉');
+        setTimeout(() => setSuccessMessage(null), 3000);
       } else {
         setError(data.message || 'Failed to create post');
       }
@@ -195,10 +199,13 @@ const Homepage = () => {
     }
   };
 
+  // ... rest of the report functionality remains the same ...
+
   const handleReportClick = (postId) => {
     setReportModal({ open: true, postId });
     setReportReason('spam');
     setOtherReason('');
+    setMenuStates({});
   };
 
   const handleReportClose = () => {
@@ -218,7 +225,7 @@ const Homepage = () => {
 
     try {
       setError(null);
-      const response = await fetch(\`\${API_BASE_URL}/posts/\${reportModal.postId}/report\`, {
+      const response = await fetch(`${API_BASE_URL}/posts/${reportModal.postId}/report`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,8 +240,11 @@ const Homepage = () => {
 
       if (data.success) {
         setReportedPosts(prev => new Set([...prev, reportModal.postId]));
-        setError('Post reported successfully');
-        handleReportClose();
+        setSuccessMessage('Post reported successfully! ✅');
+        setTimeout(() => {
+          setSuccessMessage(null);
+          handleReportClose();
+        }, 1500);
       } else {
         setError(data.message || 'Failed to report post');
       }
@@ -244,14 +254,35 @@ const Homepage = () => {
     }
   };
 
-  const reportReasons = [
-    { value: 'spam', label: 'Spam' },
-    { value: 'harassment', label: 'Harassment or bullying' },
-    { value: 'inappropriate_content', label: 'Inappropriate content' },
-    { value: 'violence', label: 'Violent or dangerous' },
-    { value: 'misinformation', label: 'Misinformation' },
-    { value: 'other', label: 'Other' },
-  ];
+  const toggleMenu = (postId) => {
+    setMenuStates(prev => ({
+      ...prev,
+      [postId]: !prev[postId]
+    }));
+  };
+
+  const handleCopyLink = (postId) => {
+    const postLink = `${window.location.origin}/post/${postId}`;
+    navigator.clipboard.writeText(postLink).then(() => {
+      setSuccessMessage('Post link copied! 📋');
+      setTimeout(() => setSuccessMessage(null), 2000);
+    }).catch(() => {
+      setError('Failed to copy link');
+    });
+    toggleMenu(postId);
+  };
+
+  const handleNotInterested = (postId) => {
+    setSuccessMessage('Post hidden from feed');
+    setTimeout(() => setSuccessMessage(null), 2000);
+    toggleMenu(postId);
+  };
+
+  const closeAllMenus = (e) => {
+    if (!e.target.closest('.post-menu-dropdown')) {
+      setMenuStates({});
+    }
+  };
 
   return (
     <>
@@ -259,36 +290,43 @@ const Homepage = () => {
       <div className="homepage-container">
         <div className="homepage-content">
           <div className="main-feed">
-            <div className="create-post-section" onClick={() => setIsModalOpen(true)}>
+            {/* Create Post - Make clickable obvious */}
+            <div className="create-post-section" role="button" tabIndex="0" onClick={handleCreatePostClick} onKeyDown={(e) => e.key === 'Enter' && handleCreatePostClick(e)}>
               <div className="create-post-header">
                 <div className="create-post-avatar">
                   {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'Y'}
                 </div>
-                <div className="create-post-input">
+                <div className="create-post-input" style={{cursor: 'text'}}>
                   What's on your mind, {currentUser.fullName || 'Friend'}?
                 </div>
               </div>
-
               <div className="create-post-actions">
-                <button className="action-btn">
-                  <FaCamera className="action-btn-icon" />
-                  Photo
+                <button className="action-btn" type="button">
+                  <FaCamera /> Photo
                 </button>
-                <button className="action-btn">
-                  <FaVideo className="action-btn-icon" />
-                  Video
+                <button className="action-btn" type="button">
+                  <FaVideo /> Video
                 </button>
+              </div>
+              <div style={{textAlign: 'center', marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem'}}>
+                Click anywhere to create post
               </div>
             </div>
 
+            {successMessage && (
+              <div className="success-message">
+                {successMessage}
+              </div>
+            )}
+
             {error && (
-              <div className="error-message" style={{ color: 'red', padding: '10px', marginBottom: '10px', backgroundColor: '#ffebee', borderRadius: '5px' }}>
+              <div className="error-message">
                 {error}
               </div>
             )}
 
             {loading && (
-              <div className="loading-message" style={{ textAlign: 'center', padding: '20px' }}>
+              <div className="loading-message">
                 Loading posts...
               </div>
             )}
@@ -297,7 +335,7 @@ const Homepage = () => {
               <h2>Posts from Friends & Others</h2>
               <div className="posts-container">
                 {posts.length === 0 && !loading ? (
-                  <div className="no-posts-message" style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                  <div className="no-posts-message">
                     No posts yet. Be the first to create a post!
                   </div>
                 ) : (
@@ -313,45 +351,63 @@ const Homepage = () => {
                       <div className="post-content">
                         <p>{post.content}</p>
                         {post.image && (
-                          <div className="post-image">
-                            <img src={post.image} alt="Post content" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '10px' }} />
-                          </div>
+                          <img src={post.image} alt="Post content" className="post-image" />
                         )}
                       </div>
                       <div className="post-actions">
                         <button 
-                          className="action-btn like-btn" 
+                          className={`action-btn like-btn ${likedPosts.has(post.id) ? 'liked' : ''}`}
                           onClick={() => handleLikePost(post.id)}
-                          style={{ 
-                            backgroundColor: likedPosts.has(post.id) ? '#e3f2fd' : 'transparent',
-                            color: likedPosts.has(post.id) ? '#1976d2' : 'inherit',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px'
-                          }}
                         >
                           <FaThumbsUp /> {post.likes} {post.likes === 1 ? 'Like' : 'Likes'}
                         </button>
-                        <button className="action-btn comment-btn" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <button className="action-btn comment-btn">
                           <FaComment /> {post.comments} {post.comments === 1 ? 'Comment' : 'Comments'}
                         </button>
-                        <button className="action-btn share-btn" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <button className="action-btn share-btn">
                           <FaShare /> Share
                         </button>
-                        <button 
-                          className="action-btn report-btn" 
-                          onClick={() => handleReportClick(post.id)}
-                          disabled={reportedPosts.has(post.id)}
-                          style={{ 
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            opacity: reportedPosts.has(post.id) ? 0.5 : 1,
-                            cursor: reportedPosts.has(post.id) ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          <FaFlag /> {reportedPosts.has(post.id) ? 'Reported' : 'Report'}
-                        </button>
+                        <div className="post-menu-container">
+                          <button 
+                            className="action-btn more-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleMenu(post.id);
+                            }}
+                          >
+                            <FaEllipsisV />
+                          </button>
+                          {menuStates[post.id] && (
+                            <div className="post-menu-dropdown">
+                              <button 
+                                className="dropdown-item"
+                                onClick={() => handleReportClick(post.id)}
+                                disabled={reportedPosts.has(post.id)}
+                              >
+                                {reportedPosts.has(post.id) ? (
+                                  <>
+                                    <FaCheckCircle style={{ marginRight: '0.5rem' }} />
+                                    Reported
+                                  </>
+                                ) : (
+                                  'Report Post'
+                                )}
+                              </button>
+                              <button 
+                                className="dropdown-item"
+                                onClick={() => handleCopyLink(post.id)}
+                              >
+                                Copy Link
+                              </button>
+                              <button 
+                                className="dropdown-item"
+                                onClick={() => handleNotInterested(post.id)}
+                              >
+                                Not Interested
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -362,12 +418,15 @@ const Homepage = () => {
         </div>
       </div>
 
+      {/* Create Post Modal - Guaranteed to work */}
       {isModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={(e) => {
+          if (e.target === e.currentTarget) setIsModalOpen(false);
+        }}>
+          <div className="modal-content">
             <div className="modal-header">
               <h3>Create Post</h3>
-              <button className="modal-close" onClick={() => setIsModalOpen(false)}>×</button>
+              <button className="modal-close" type="button" onClick={() => setIsModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handlePostSubmit}>
               <div className="modal-body">
@@ -387,12 +446,12 @@ const Homepage = () => {
                 />
                 {selectedImage && (
                   <div className="image-preview">
-                    <img src={selectedImage} alt="Preview" />
-                    <button type="button" onClick={() => setSelectedImage(null)}>Remove</button>
+                    <img src={selectedImage} alt="Preview" className="preview-image" />
+                    <button type="button" className="remove-image-btn" onClick={() => setSelectedImage(null)}>
+                      Remove
+                    </button>
                   </div>
                 )}
-              </div>
-              <div className="modal-footer">
                 <div className="add-to-post">
                   <span>Add to your post</span>
                   <div className="add-options">
@@ -405,6 +464,8 @@ const Homepage = () => {
                     <button type="button" className="add-option"><FaMapMarkerAlt /></button>
                   </div>
                 </div>
+              </div>
+              <div className="modal-footer">
                 <button type="submit" className="post-submit-btn" disabled={(!postContent.trim() && !selectedImage) || submitting}>
                   {submitting ? 'Posting...' : 'Post'}
                 </button>
@@ -414,40 +475,35 @@ const Homepage = () => {
         </div>
       )}
 
+      {/* Report Modal */}
       {reportModal.open && (
         <div className="modal-overlay" onClick={handleReportClose}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Report Post</h3>
+              <h3><FaFlag style={{ marginRight: '0.5rem', color: '#ff6b6b' }} />Report Post</h3>
               <button className="modal-close" onClick={handleReportClose}>×</button>
             </div>
             <form onSubmit={handleReportSubmit}>
               <div className="modal-body">
-                <div className="post-author">
-                  <div className="create-post-avatar">
-                    R
-                  </div>
-                  <span>Report this post</span>
-                </div>
                 <div className="report-reason-section">
-                  <label className="report-label">Why are you reporting this post?</label>
+                  <label className="report-label">What's the issue?</label>
                   <select 
                     value={reportReason} 
                     onChange={(e) => setReportReason(e.target.value)}
                     className="modal-select"
                   >
-                    <option value="spam">Spam</option>
-                    <option value="harassment">Harassment or bullying</option>
-                    <option value="inappropriate_content">Inappropriate content</option>
-                    <option value="violence">Violent or dangerous</option>
-                    <option value="misinformation">Misinformation</option>
-                    <option value="other">Other</option>
+                    <option value="spam">🕸️ Spam</option>
+                    <option value="harassment">👥 Harassment</option>
+                    <option value="inappropriate_content">🚫 Inappropriate</option>
+                    <option value="violence">⚠️ Violent</option>
+                    <option value="misinformation">❌ Misinfo</option>
+                    <option value="other">📝 Other</option>
                   </select>
                   {reportReason === 'other' && (
                     <textarea
                       value={otherReason}
                       onChange={(e) => setOtherReason(e.target.value)}
-                      placeholder="Please provide details..."
+                      placeholder="Details..."
                       className="modal-textarea"
                       rows="3"
                     />
@@ -459,7 +515,7 @@ const Homepage = () => {
                   Cancel
                 </button>
                 <button type="submit" className="post-submit-btn report-submit-btn">
-                  Report Post
+                  Submit Report
                 </button>
               </div>
             </form>

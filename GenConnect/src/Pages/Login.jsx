@@ -6,6 +6,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { server } from '../../server.js';
 import Navbar from '../Components/Navbar';
 import '../Styles/Login.css';
+import { generateKeyPair } from '../utils/crypto.js';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -25,13 +26,19 @@ const Login = () => {
     try {
       const response = await axios.post(`${server}/login`, formData);
       toast.success('Login successful!');
-
-      // Store token and user data in localStorage
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
-
-      // Redirect to home page or refresh the page
+      // Gen E2EE keys if not exist (client-side)
+      if (!localStorage.getItem('localPrivateKey')) {
+        const keys = await generateKeyPair();
+        localStorage.setItem('localPrivateKey', keys.privateKey);
+        await axios.put(`${server}/users/${response.data.user.id}/keys`, { publicKey: keys.publicKey }, {
+          headers: { Authorization: `Bearer ${response.data.token}` }
+        });
+        toast.info('E2EE keys generated client-side');
+      }
       window.location.href = '/';
+
     } catch (error) {
       if (error.response) {
         toast.error(error.response.data.message || 'Login failed');

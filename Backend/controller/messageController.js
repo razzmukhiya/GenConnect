@@ -1,6 +1,6 @@
 const db = require('../db/connection');
 
-// Get messages between two users
+// Get messages between two users (E2EE - ciphertext only)
 exports.getMessages = async (req, res) => {
   try {
     const { userId, friendId } = req.params;
@@ -9,10 +9,11 @@ exports.getMessages = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User ID and Friend ID required' });
     }
 
-    // Get conversation between two users
+    // Return ONLY encrypted data + keys for client decrypt
     const [messages] = await db.execute(
-      `SELECT m.id, m.sender_id, m.receiver_id, m.message, m.is_read, m.created_at,
-              sender.fullName as senderName, receiver.fullName as receiverName
+      `SELECT m.id, m.sender_id, m.receiver_id, m.encrypted_text, m.iv, m.auth_tag, m.public_key_fingerprint, m.is_read, m.created_at,
+              sender.fullName as senderName, sender.public_key as sender_pubkey, sender.public_key_fingerprint as sender_fingerprint,
+              receiver.fullName as receiverName, receiver.public_key as receiver_pubkey, receiver.public_key_fingerprint as receiver_fingerprint
        FROM messages m
        JOIN users sender ON m.sender_id = sender.id
        JOIN users receiver ON m.receiver_id = receiver.id
@@ -21,7 +22,7 @@ exports.getMessages = async (req, res) => {
       [userId, friendId, friendId, userId]
     );
 
-    // Mark messages as read
+    // Mark as read
     await db.execute(
       'UPDATE messages SET is_read = TRUE WHERE receiver_id = ? AND sender_id = ? AND is_read = FALSE',
       [userId, friendId]
@@ -34,29 +35,29 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-// Send a message
+// Send E2EE message (ciphertext + metadata only)
 exports.sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, message } = req.body;
+    const { senderId, receiverId, encrypted_text, iv, auth_tag } = req.body;
 
-    if (!senderId || !receiverId || !message) {
-      return res.status(400).json({ success: false, message: 'Sender ID, Receiver ID and Message are required' });
+    if (!senderId || !receiverId || !encrypted_text || !iv || !auth_tag) {
+      return res.status(400).json({ success: false, message: 'Full E2EE data required: senderId, receiverId, encrypted_text, iv, auth_tag' });
     }
 
-    if (senderId === receiverId) {
-      return res.status(400).json({ success: false, message: 'Cannot send message to yourself' });
-    }
+    // Fetch receiver fingerprint for audit
+    const [receiverRows] = await db.execute('SELECT public_key_fingerprint FROM users WHERE id = ?', [receiverId]);
+    const fingerprint = receiverRows[0]?.public_key_fingerprint || null;
 
-    // Insert the message
     const [result] = await db.execute(
-      'INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)',
-      [senderId, receiverId, message]
+      'INSERT INTO messages (sender_id, receiver_id, encrypted_text, iv, auth_tag, public_key_fingerprint, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
+      [senderId, receiverId, encrypted_text.trim(), iv.trim(), auth_tag.trim(), fingerprint]
     );
 
-    // Get the inserted message with user details
+    // Get inserted message (no plaintext)
     const [messages] = await db.execute(
-      `SELECT m.id, m.sender_id, m.receiver_id, m.message, m.is_read, m.created_at,
-              sender.fullName as senderName, receiver.fullName as receiverName
+      `SELECT m.id, m.sender_id, m.receiver_id, m.encrypted_text, m.iv, m.auth_tag, m.is_read, m.created_at,
+              sender.fullName as senderName, sender.public_key as sender_pubkey,
+              receiver.fullName as receiverName, receiver.public_key as receiver_pubkey
        FROM messages m
        JOIN users sender ON m.sender_id = sender.id
        JOIN users receiver ON m.receiver_id = receiver.id
@@ -66,7 +67,7 @@ exports.sendMessage = async (req, res) => {
 
     const newMessage = messages[0];
 
-    // Create notification for receiver
+    // Notification (safe, no content)
     const NotificationModel = require('../models/notificationModel');
     await NotificationModel.createNotification(
       receiverId, 
@@ -75,24 +76,25 @@ exports.sendMessage = async (req, res) => {
       null, 
       newMessage.id,
       'New Message', 
-      `New message from ${newMessage.senderName}`
+      `New encrypted message from ${newMessage.senderName}`
     );
 
-    // Emit to both sender and receiver rooms via socket
+    // Socket emit (ciphertext only) - FULL E2EE data for client decrypt
     if (global.io) {
+      console.log('📤 EMIT newMessage:', senderId, '->', receiverId);
       global.io.to(senderId.toString()).to(receiverId.toString()).emit('newMessage', {
         ...newMessage,
+        sender_pubkey: newMessage.sender_pubkey,
         room: `${Math.min(senderId, receiverId)}-${Math.max(senderId, receiverId)}`
       });
       
-      // Emit notification to receiver only
       global.io.to(receiverId.toString()).emit('newNotification', {
         id: newMessage.id,
         userId: receiverId,
         type: 'message',
         fromUserId: senderId,
         title: 'New Message',
-        body: `New message from ${newMessage.senderName}`,
+        body: `Encrypted message from ${newMessage.senderName}`,
         created_at: newMessage.created_at
       });
     }
@@ -104,7 +106,7 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// Get all conversations for a user (latest message from each friend)
+// Get conversations (safe E2EE preview - no content leak)
 exports.getConversations = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -113,7 +115,6 @@ exports.getConversations = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User ID required' });
     }
 
-    // Get all conversations with latest message
     const [conversations] = await db.execute(
       `SELECT 
         CASE 
@@ -121,7 +122,7 @@ exports.getConversations = async (req, res) => {
           ELSE m.sender_id 
         END as friend_id,
         m.id as last_message_id,
-        m.message as last_message,
+        '[Encrypted Message]' as last_message,  -- Safe preview, client decrypts full chat
         m.created_at as last_message_time,
         m.is_read as is_read,
         u.fullName as friendName,
@@ -159,13 +160,14 @@ exports.markAsRead = async (req, res) => {
       [userId, friendId]
     );
 
-    // Emit socket event to sender
+    console.log('👁️ MarkAsRead emit to sender room:', friendId);
     if (global.io) {
-      global.io.to(friendId).emit('messagesSeen', {
+      global.io.to(friendId.toString()).emit('messagesSeen', {
         receiverId: userId,
         senderId: friendId,
         count: result.affectedRows
       });
+      console.log('✅ messagesSeen emitted to', friendId);
     }
 
     res.json({ success: true, message: 'Messages marked as read', count: result.affectedRows });

@@ -35,5 +35,7 @@ router.get('/search', userController.searchUsers);
 
 // Get Suggested Users (People You May Know) Route
 router.get('/users/suggested/:id', userController.getSuggestedUsers);
+router.get('/users/public-key/:id', userController.getPublicKey);
+router.put('/users/:id/keys', userController.setPublicKey);
 
 module.exports = router;

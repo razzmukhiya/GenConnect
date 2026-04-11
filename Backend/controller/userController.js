@@ -20,7 +20,9 @@ exports.register = async (req, res) => {
     
     await userModel.createProfile(userResult.id);
 
-    res.status(201).json({ success: true, message: 'User registered successfully', userId: userResult.id });
+    const token = jwt.sign({ id: userResult.id, email }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
+    res.status(201).json({ success: true, message: 'User registered successfully', userId: userResult.id, token });
+
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -48,7 +50,7 @@ exports.login = async (req, res) => {
     // Generate JWT token
     const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
 
-    // Return user data (excluding password) and token
+    // Return user data (excluding password), private key, and token
     const { password: _, ...userData } = user;
     res.json({ success: true, message: 'Login successful', user: userData, token });
   } catch (error) {
@@ -440,6 +442,41 @@ exports.getSuggestedUsers = async (req, res) => {
     res.json({ success: true, users: suggestedUsers });
   } catch (error) {
     console.error('Get suggested users error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.getPublicKey = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await db.execute('SELECT public_key, public_key_fingerprint FROM users WHERE id = ?', [id]);
+    if (rows.length === 0 || !rows[0].public_key) {
+      return res.status(404).json({ success: false, message: 'Public key not found for user' });
+    }
+    res.json({ success: true, publicKey: rows[0].public_key, fingerprint: rows[0].public_key_fingerprint });
+  } catch (error) {
+    console.error('Get public key error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.setPublicKey = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { publicKey } = req.body;
+    if (!publicKey) {
+      return res.status(400).json({ success: false, message: 'Public key required' });
+    }
+    const crypto = require('crypto');
+    const fingerprint = crypto.createHash('sha256').update(publicKey).digest('hex').toUpperCase();
+    const db = require('../db/connection');
+    const [result] = await db.execute('UPDATE users SET public_key = ?, public_key_fingerprint = ? WHERE id = ?', [publicKey, fingerprint, id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    res.json({ success: true, message: 'Public key & fingerprint updated successfully', fingerprint });
+  } catch (error) {
+    console.error('Set public key error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

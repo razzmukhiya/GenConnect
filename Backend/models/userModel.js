@@ -1,6 +1,5 @@
 const pool = require("../db/connection");
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 
 exports.createUser = async (fullName, email, number, dateOfBirth, gender, password) => {
   try {
@@ -18,7 +17,7 @@ exports.createUser = async (fullName, email, number, dateOfBirth, gender, passwo
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create users table if not exists
+    // Create users table if not exists (plain text - no keys)
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -37,7 +36,7 @@ exports.createUser = async (fullName, email, number, dateOfBirth, gender, passwo
       )
     `);
 
-    // Insert user data
+    // Insert user data (plain text - no keys)
     const [result] = await pool.execute(
       'INSERT INTO users (fullName, email, number, dateOfBirth, gender, password) VALUES (?, ?, ?, ?, ?, ?)',
       [fullName, email, number, dateOfBirth, gender, hashedPassword]
@@ -597,3 +596,19 @@ exports.getSuggestedUsers = async (userId, limit = 10) => {
     throw new Error(`Get suggested users failed: ${err.message}`);
   }
 };
+
+exports.getPublicKeyById = async (id) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT public_key FROM users WHERE id = ?',
+      [id]
+    );
+    return rows[0]?.public_key || null;
+  } catch (err) {
+    console.error("Get public key error:", err);
+    throw new Error(`Get public key failed: ${err.message}`);
+  }
+};
+
+
+

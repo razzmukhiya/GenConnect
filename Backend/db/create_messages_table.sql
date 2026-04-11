@@ -1,4 +1,4 @@
--- Create Messages Table
+-- Create Messages Table (Plain Text)
 -- Run this SQL in your MySQL database (via phpMyAdmin or command line)
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -11,5 +11,6 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_sender_receiver (sender_id, receiver_id),
+    INDEX idx_messages (message(191)),
     INDEX idx_created_at (created_at)
 );

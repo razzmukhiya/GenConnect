@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import { toast, ToastContainer } from 'react-toastify';
@@ -19,8 +19,20 @@ const Messages = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
+  const [privateKeyRaw, setPrivateKeyRaw] = useState(null);
+  const [selectedFriendPubKey, setSelectedFriendPubKey] = useState(null);
+  const messagesEndRef = useRef(null);
 
-  // Get current user from localStorage
+  // Scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+// Get current user
   useEffect(() => {
     const user = localStorage.getItem('user');
     if (user) {
@@ -28,399 +40,297 @@ const Messages = () => {
     }
   }, []);
 
-  // Socket connection
-  useEffect(() => {
-    if (currentUser) {
-      const newSocket = io(`${server.replace('/api', '')}`);
-      setSocket(newSocket);
-
-      newSocket.emit('join', currentUser.id);
-
-      return () => newSocket.close();
-    }
-  }, [currentUser]);
-
-// Listen for new messages + online status + notifications
-  useEffect(() => {
-    if (socket) {
-      socket.on('newMessage', (messageData) => {
-        if (selectedChat && 
-            ((messageData.sender_id === selectedChat.id && messageData.receiver_id === currentUser.id) ||
-             (messageData.sender_id === currentUser.id && messageData.receiver_id === selectedChat.id))) {
-          setMessages(prev => [...prev, messageData]);
-        }
-      });
-
-      socket.on('newNotification', (notification) => {
-        if (notification.type === 'message') {
-          toast.info(notification.title);
-        }
-      });
-
-      socket.on('userOnline', (userId) => {
-        setFriends(prev => prev.map(friend => 
-          friend.id === userId 
-            ? { ...friend, isOnline: true }
-            : friend
-        ));
-        setOnlineFriends(prev => {
-          const friend = friends.find(f => f.id === userId);
-          if (friend && !prev.some(f => f.id === userId)) {
-            return [...prev, friend];
-          }
-          return prev;
-        });
-      });
-
-      socket.on('userOffline', (userId) => {
-        setFriends(prev => prev.map(friend => 
-          friend.id === userId 
-            ? { ...friend, isOnline: false }
-            : friend
-        ));
-        setOnlineFriends(prev => prev.filter(f => f.id !== userId));
-      });
-
-      socket.on('onlineUsers', (onlineList) => {
-        // Optional: Update all friends status from full list
-        setFriends(prev => prev.map(friend => ({
-          ...friend,
-          isOnline: onlineList.includes(friend.id)
-        })));
-        setOnlineFriends(friends.filter(f => onlineList.includes(f.id)));
-      });
-
-      return () => {
-        socket.off('newMessage');
-        socket.off('newNotification');
-        socket.off('userOnline');
-        socket.off('userOffline');
-        socket.off('onlineUsers');
-      };
-    }
-  }, [socket, selectedChat, currentUser, friends]);
-
-  // Fetch friends when currentUser is available
+  // Auto-fetch friends when currentUser loads
   useEffect(() => {
     if (currentUser) {
       fetchFriends();
     }
   }, [currentUser]);
 
-  // Set selected chat from navigation state
-  useEffect(() => {
-    if (location.state?.userId && friends.length > 0) {
-      const friend = friends.find(f => f.id === location.state.userId);
-      if (friend) {
-        setSelectedChat(friend);
-        fetchMessages(friend.id);
+  // Load private key
+  const loadPrivateKey = useCallback(async () => {
+    let privB64 = localStorage.getItem('localPrivateKey');
+    if (!privB64) {
+      const cryptoUtils = await import('../utils/crypto.js');
+      const keys = await cryptoUtils.generateKeyPair();
+      privB64 = keys.privateKey;
+      localStorage.setItem('localPrivateKey', privB64);
+      const token = localStorage.getItem('token');
+      const userId = currentUser?.id;
+      if (token && userId) {
+        try {
+          await axios.put(`${server}/users/${userId}/keys`, { publicKey: keys.publicKey }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          toast.info('E2EE keys generated');
+        } catch (e) {
+          console.error('Key upload failed:', e);
+        }
       }
     }
-  }, [location.state, friends]);
+    try {
+      const cryptoUtils = await import('../utils/crypto.js');
+      const privRaw = await cryptoUtils.importECKey(privB64, true);
+      setPrivateKeyRaw(privRaw);
+    } catch (e) {
+      console.error('Key import failed:', e);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    loadPrivateKey();
+  }, [loadPrivateKey]);
+
+  // Socket connection
+  useEffect(() => {
+    if (currentUser) {
+      const newSocket = io(`${server.replace('/api', '')}`);
+      newSocket.on('connect', () => newSocket.emit('join', currentUser.id));
+      setSocket(newSocket);
+      return () => newSocket.close();
+    }
+  }, [currentUser]);
+
+  // Socket listeners
+  useEffect(() => {
+    if (!socket || !currentUser) return;
+
+    const handleNewMessage = async (messageData) => {
+      console.log('New message:', messageData.id);
+      if (!selectedChat) return;
+
+      // Match chat
+      if (!((messageData.sender_id === selectedChat.id && messageData.receiver_id === currentUser.id) ||
+            (messageData.sender_id === currentUser.id && messageData.receiver_id === selectedChat.id))) return;
+
+      const decryptPubkey = messageData.sender_id === currentUser.id ? messageData.receiver_pubkey : messageData.sender_pubkey;
+      if (privateKeyRaw && 
+          messageData.encrypted_text && messageData.iv && messageData.auth_tag && 
+          decryptPubkey && decryptPubkey !== 'null' && decryptPubkey !== null) {
+        try {
+          const cryptoUtils = await import('../utils/crypto.js');
+          messageData.decrypted_text = await cryptoUtils.decryptMessage(
+            messageData.encrypted_text,
+            messageData.iv,
+            messageData.auth_tag,
+            privateKeyRaw,
+            decryptPubkey
+          );
+        } catch (e) {
+          console.error('Decrypt error:', e);
+          messageData.decrypted_text = '[Decrypt failed]';
+        }
+      } else {
+        console.warn('Socket message missing decrypt data:', { 
+          hasPrivateKey: !!privateKeyRaw, 
+          decryptPubkey, 
+          isOwn: messageData.sender_id === currentUser.id
+        });
+        messageData.decrypted_text = messageData.message || '[Encrypted/No key]';
+      }
+
+      setMessages(prev => [...prev, messageData]);
+    };
+
+    socket.on('newMessage', handleNewMessage);
+    socket.on('userOnline', (userId) => {
+      setFriends(prev => prev.map(f => f.id === parseInt(userId) ? {...f, isOnline: true} : f));
+      setOnlineFriends(friends.filter(f => f.isOnline || f.id === parseInt(userId)));
+    });
+    socket.on('userOffline', (userId) => {
+      setFriends(prev => prev.map(f => f.id === parseInt(userId) ? {...f, isOnline: false} : f));
+      setOnlineFriends(friends.filter(f => f.isOnline));
+    });
+    socket.on('onlineUsers', (list) => {
+      setFriends(prev => prev.map(f => ({...f, isOnline: list.some(id => parseInt(id) === f.id)})));
+      setOnlineFriends(friends.filter(f => list.some(id => parseInt(id) === f.id)));
+    });
+    socket.on('messagesSeen', (data) => setMessages(prev => prev.map(m => m.sender_id === data.receiverId && m.receiver_id === data.senderId && !m.is_read ? {...m, is_read: true} : m)));
+
+    return () => {
+      socket.off('newMessage', handleNewMessage);
+      socket.off('userOnline');
+      socket.off('userOffline');
+      socket.off('onlineUsers');
+      socket.off('messagesSeen');
+    };
+  }, [socket, currentUser, selectedChat?.id, privateKeyRaw, friends]);
 
   const fetchFriends = async () => {
     try {
       const token = localStorage.getItem('token');
+      const res1 = await axios.get(`${server}/friends/${currentUser.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res2 = await axios.get(`${server}/friends/${currentUser.id}/online-status`, { headers: { Authorization: `Bearer ${token}` } });
       
-      // Fetch friends
-      const friendsResponse = await axios.get(
-        `${server}/friends/${currentUser.id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      let friends = friendsResponse.data.friends;
-      
-      // Fetch online status
-      const onlineResponse = await axios.get(
-        `${server}/friends/${currentUser.id}/online-status`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      const onlineFriendsIds = onlineResponse.data.onlineFriends || [];
-      
-      // Add isOnline to each friend
-      friends = friends.map(friend => ({
+      const friends = res1.data.friends.map(friend => ({
         ...friend,
-        isOnline: onlineFriendsIds.includes(friend.id)
+        isOnline: res2.data.onlineFriends.some(id => parseInt(id) === friend.id)
       }));
       
       setFriends(friends);
       setOnlineFriends(friends.filter(f => f.isOnline));
-      
-    } catch (error) {
-      console.error('Error fetching friends/online status:', error);
+    } catch (e) {
+      console.error('Friends fetch failed:', e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchFriendPubKey = async (friendId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${server}/users/public-key/${friendId}`, { headers: { Authorization: `Bearer ${token}` } });
+      return res.data.publicKey;
+    } catch (e) {
+      return null;
     }
   };
 
   const fetchMessages = async (friendId) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(
-        `${server}/messages/${currentUser.id}/${friendId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
+      const res = await axios.get(`${server}/messages/${currentUser.id}/${friendId}`, { headers: { Authorization: `Bearer ${token}` } });
+      
+      const msgs = res.data.messages || [];
+      if (privateKeyRaw) {
+        const cryptoUtils = await import('../utils/crypto.js');
+        for (let msg of msgs) {
+      const decryptPubkey = msg.sender_id === currentUser.id ? msg.receiver_pubkey : msg.sender_pubkey;
+      if (privateKeyRaw && msg.encrypted_text && msg.iv && msg.auth_tag && decryptPubkey) {
+        try {
+          msg.decrypted_text = await cryptoUtils.decryptMessage(
+            msg.encrypted_text, msg.iv, msg.auth_tag, privateKeyRaw, decryptPubkey
+          );
+        } catch (e) {
+          console.error('Initial load decrypt error:', e);
+          msg.decrypted_text = '[Decrypt fail]';
         }
-      );
-      if (response.data.success) {
-        setMessages(response.data.messages);
+      } else {
+        msg.decrypted_text = msg.message || '[No content]';
       }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
+        }
+      }
+      
+      setMessages(msgs);
+    } catch (e) {
+      console.error('Messages fetch failed:', e);
     }
   };
 
   const handleSelectFriend = async (friend) => {
+    setSelectedFriendPubKey(await fetchFriendPubKey(friend.id));
     setSelectedChat(friend);
     fetchMessages(friend.id);
     
-    // Mark as read when chat selected
+    const token = localStorage.getItem('token');
     try {
-      const token = localStorage.getItem('token');
       await axios.put(`${server}/messages/read/${currentUser.id}/${friend.id}`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-    } catch (error) {
-      console.error('Error marking as read:', error);
+    } catch (e) {
+      console.error(e);
     }
   };
-
-  // Listen for message seen events
-  useEffect(() => {
-    if (socket) {
-      socket.on('messagesSeen', (data) => {
-        if (data.senderId === currentUser.id) {
-          setMessages(prev => prev.map(msg => 
-            msg.sender_id === data.receiverId && 
-            msg.receiver_id === data.senderId && 
-            msg.is_read === false 
-              ? { ...msg, is_read: true }
-              : msg
-          ));
-        }
-      });
-      return () => socket.off('messagesSeen');
-    }
-  }, [socket, currentUser]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChat) return;
-
+    const plaintext = newMessage.trim();
+    if (!plaintext || !selectedChat) return toast.error('Cannot send');
+    
+    // Optimistically add to UI with plaintext (for sender)
+    const optimisticMsg = {
+      id: Date.now(),
+      sender_id: currentUser.id,
+      receiver_id: selectedChat.id,
+      decrypted_text: plaintext,
+      created_at: new Date().toISOString(),
+      is_read: true
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+    setNewMessage('');
+    
+    const token = localStorage.getItem('token');
+    let payload = { senderId: currentUser.id, receiverId: selectedChat.id };
+    
+    if (privateKeyRaw && selectedFriendPubKey) {
+      const cryptoUtils = await import('../utils/crypto.js');
+      const encrypted = await cryptoUtils.encryptMessage(plaintext, privateKeyRaw, selectedFriendPubKey);
+      Object.assign(payload, encrypted);
+    } else {
+      payload.plainMessage = plaintext;
+    }
+    
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${server}/messages`,
-        {
-          senderId: currentUser.id,
-          receiverId: selectedChat.id,
-          message: newMessage
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (response.data.success) {
-        // Don't add optimistic update since socket will handle it
-        setNewMessage('');
-        toast.success('Message sent!');
+    const res = await axios.post(`${server}/messages`, payload, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        // Replace optimistic with server message (ensures correct decrypt data)
+        const serverMsg = res.data.message;
+        setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? {
+          ...serverMsg,
+          decrypted_text: plaintext  // Sender knows plaintext
+        } : m));
+        toast.success('Sent!');
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast.error('Failed to send message');
+    } catch (e) {
+      toast.error('Send failed');
+      // Remove optimistic on error
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
     }
   };
 
-  if (!currentUser) {
-    return (
-      <>
-        <Navbar />
-        <div className="messages-page">
-          <div className="messages-container">
-            <h1>Please login to view your messages</h1>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div className="messages-page">
-          <div className="messages-container">
-            <h1>Loading...</h1>
-          </div>
-        </div>
-      </>
-    );
-  }
+  if (!currentUser || loading) return <><Navbar /><div>Loading...</div></>;
 
   return (
     <>
       <Navbar />
       <div className="messages-page">
-        {/* Top: Online Friends Bar */}
-        <div className="online-friends-bar">
-          <span className="online-friends-label">
-            <span className="online-indicator"></span>
-            Online Friends
-          </span>
-          <div className="online-friends-scroll">
-            {onlineFriends.length > 0 ? (
-              onlineFriends.map(friend => (
-                <div 
-                  key={friend.id} 
-                  className="online-friend-item"
-                  onClick={() => handleSelectFriend(friend)}
-                >
-                  <div className="online-friend-avatar">
-                    {friend.fullName ? friend.fullName.charAt(0) : '?'}
-                    <span className="online-status-dot"></span>
-                  </div>
-                  <span className="online-friend-name">
-                    {friend.fullName ? friend.fullName.split(' ')[0] : 'User'}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <span className="online-friends-label" style={{ opacity: 0.5 }}>
-                No friends online
-              </span>
-            )}
-          </div>
+        {/* Online bar */}
+        <div className="online-bar">
+          Online ({onlineFriends.length} active friends)
+          {onlineFriends.map(f => (
+            <button key={f.id} onClick={() => handleSelectFriend(f)}>{f.fullName?.split(' ')[0]}</button>
+          ))}
         </div>
 
-        {/* Main Layout: Friends List on Left + Messages on Right */}
-        <div className="messages-layout">
-          {/* Left: Friends List (20%) */}
-          <div className="friends-sidebar">
-            <div className="friends-sidebar-header">
-              <h3>👥 Friends ({friends.length})</h3>
-            </div>
-            <div className="friends-sidebar-list">
-              {friends.length > 0 ? (
-                friends.map(friend => (
-                  <div 
-                    key={friend.id} 
-                    className={`friend-sidebar-item ${selectedChat?.id === friend.id ? 'active' : ''}`}
-                    onClick={() => handleSelectFriend(friend)}
-                  >
-                    <div className="friend-sidebar-avatar">
-                      {friend.fullName ? friend.fullName.charAt(0) : '?'}
-                    </div>
-                    <div className="friend-sidebar-info">
-                      <div className="friend-sidebar-name">{friend.fullName}</div>
-                      <div className="friend-sidebar-status">
-                        <span className={`status-dot ${friend.isOnline ? 'online' : 'offline'}`}></span>
-                        <span>{friend.isOnline ? 'Online' : 'Offline'}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="no-friends-yet">
-                  <p>No friends yet</p>
-                  <p>Add friends to start messaging!</p>
-                </div>
-              )}
-            </div>
+        <div className="chat-container">
+          {/* Friends list */}
+          <div className="friends-list">
+            {friends.map(friend => (
+              <button key={friend.id} onClick={() => handleSelectFriend(friend)} className={selectedChat?.id === friend.id ? 'active' : ''}>
+                {friend.fullName} {friend.isOnline && '●'}
+              </button>
+            ))}
           </div>
 
-          {/* Right: Messages Section (80%) */}
-          <div className="messages-section">
+          {/* Chat area */}
+          <div className="chat-area">
             {selectedChat ? (
               <>
-                <div className="messages-header">
-                  <div className="chat-user-info">
-                    <div className="chat-user-avatar">
-                      {selectedChat.fullName ? selectedChat.fullName.charAt(0) : '?'}
+                <div className="chat-header">{selectedChat.fullName}</div>
+                <div className="chat-messages">
+                  {messages.map((msg, i) => (
+                    <div key={i} className={msg.sender_id === currentUser.id ? 'own' : 'other'}>
+                      <div>{msg.decrypted_text || msg.message || '...'}</div>
+                      <small>{new Date(msg.created_at).toLocaleTimeString()}</small>
                     </div>
-                    <div>
-                      <div className="chat-user-name">{selectedChat.fullName}</div>
-                      <div className={`chat-user-status ${selectedChat.isOnline ? 'online' : 'offline'}`}>
-                        ● {selectedChat.isOnline ? 'Online' : 'Offline'}
-                      </div>
-                    </div>
-                  </div>
+                  ))}
+                  <div ref={messagesEndRef} />
                 </div>
-                <div className="messages-list">
-                  {messages.length > 0 ? (
-                    messages.map((msg, index) => (
-                      <div 
-                        key={index} 
-                        className={`message-bubble ${msg.sender_id === currentUser.id ? 'sent' : 'received'}`}
-                      >
-
-                        <div className="message-text">{msg.message}</div>
-                        <div className="message-meta">
-                          <div className="message-time">
-                            {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </div>
-                          <div className="message-status">
-                            {msg.sender_id === currentUser.id ? (
-                              msg.is_read ? <FaCheckDouble className="status-icon seen" /> 
-                              : selectedChat?.isOnline ? <FaCheck className="status-icon delivered" /> 
-                              : <FaClock className="status-icon sent" />
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="no-chat-selected">
-                      <div className="no-chat-selected-icon">💬</div>
-                      <h3>No messages yet</h3>
-                      <p>Send a message to start the conversation!</p>
-                    </div>
-                  )}
-                </div>
-                <form className="message-input-container" onSubmit={handleSendMessage}>
-                  <input
-                    type="text"
-                    className="message-input"
-                    placeholder="Type a message..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                  />
-                  <button type="submit" className="send-btn">
-                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                    </svg>
-                  </button>
+                <form onSubmit={handleSendMessage} className="chat-input">
+                  <input value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Message..." />
+                  <button type="submit">Send</button>
                 </form>
               </>
             ) : (
-              <div className="no-chat-selected">
-                <div className="no-chat-selected-icon">💬</div>
-                <h3>Select a conversation</h3>
-                <p>Choose a friend from the list to start messaging</p>
-              </div>
+              <div className="no-chat">Select friend</div>
             )}
           </div>
         </div>
       </div>
-      <ToastContainer
-        position="top-right"
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="light"
-      />
+      <ToastContainer />
     </>
   );
 };
 
 export default Messages;
+

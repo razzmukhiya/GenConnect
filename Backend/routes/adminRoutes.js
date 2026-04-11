@@ -17,8 +17,10 @@ router.put('/change-password', authMiddleware, adminController.changePassword);
 
 // Admin management routes (require authentication)
 router.get('/admins', authMiddleware, adminController.getAllAdmins);
+router.get('/admins/:id', authMiddleware, adminController.getAdmin);
 router.post('/admins', authMiddleware, adminController.createAdmin);
-router.put('/admins/:id/status', authMiddleware, adminController.updateAdminStatus);
+router.put('/admins/:id', authMiddleware, adminController.updateAdmin);
+router.get('/admins/:id', authMiddleware, adminController.getAdmin);
 router.delete('/admins/:id', authMiddleware, adminController.deleteAdmin);
 
 // User management routes

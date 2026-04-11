@@ -1,9 +1,6 @@
 /* Navbar.css - Professional Modern Styling */
 
-body {
-  margin: 0;
-  padding-top: 80px; /* Adjust based on navbar height */
-}
+/* body padding removed - Homepage handles its own spacing */
 
 .navbar {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
