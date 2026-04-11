@@ -2,6 +2,7 @@ const pool = require("../db/connection");
 
 exports.createPostReportsTable = async () => {
   try {
+
     await pool.execute(`CREATE TABLE IF NOT EXISTS post_reports (
       id INT AUTO_INCREMENT PRIMARY KEY,
       post_id INT NOT NULL,
@@ -15,6 +16,9 @@ exports.createPostReportsTable = async () => {
       INDEX idx_post_id (post_id),
       INDEX idx_status (status)
     )`);
+
+    await pool.execute("CREATE TABLE IF NOT EXISTS post_reports (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT NOT NULL, reporter_id INT NOT NULL, reason VARCHAR(100) NOT NULL, status ENUM('pending', 'reviewed', 'dismissed') DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE, FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE, UNIQUE KEY unique_post_report (post_id, reporter_id), INDEX idx_post_id (post_id), INDEX idx_status (status)")");
+
     console.log("Post reports table created or already exists");
   } catch (err) {
     console.error("Create post_reports table error:", err);
@@ -57,6 +61,7 @@ exports.createReport = async (postId, reporterId, reason) => {
 
 exports.getAllReports = async () => {
   try {
+
     const [rows] = await pool.execute(`
       SELECT pr.*, p.content, p.user_id as post_author_id, 
              r.fullName as reporter_name, pa.fullName as post_author_name
@@ -66,6 +71,16 @@ exports.getAllReports = async () => {
       LEFT JOIN users pa ON p.user_id = pa.id
       ORDER BY pr.created_at DESC
     `);
+
+    const [rows] = await pool.execute(
+      "SELECT pr.*, p.content, p.user_id as post_author_id, 
+              r.fullName as reporter_name, pa.fullName as post_author_name
+       FROM post_reports pr
+       JOIN posts p ON pr.post_id = p.id
+       JOIN users r ON pr.reporter_id = r.id
+       JOIN users pa ON p.user_id = pa.id
+       ORDER BY pr.created_at DESC"
+    );
     return rows;
   } catch (err) {
     console.error("Get all reports error:", err);
@@ -75,6 +90,7 @@ exports.getAllReports = async () => {
 
 exports.getReportsByPostId = async (postId) => {
   try {
+
     const [rows] = await pool.execute(`
       SELECT pr.*, u.fullName as reporter_name
       FROM post_reports pr
@@ -82,6 +98,16 @@ exports.getReportsByPostId = async (postId) => {
       WHERE pr.post_id = ?
       ORDER BY pr.created_at DESC
     `, [postId]);
+
+    const [rows] = await pool.execute(
+      "SELECT pr.*, u.fullName as reporter_name
+       FROM post_reports pr
+       JOIN users u ON pr.reporter_id = u.id
+       WHERE pr.post_id = ?
+       ORDER BY pr.created_at DESC",
+      [postId]
+    );
+
     return rows;
   } catch (err) {
     console.error("Get reports by post ID error:", err);

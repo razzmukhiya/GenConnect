@@ -17,7 +17,25 @@ router.put('/change-password', authMiddleware, adminController.changePassword);
 
 // Admin management routes (require authentication)
 router.get('/admins', authMiddleware, adminController.getAllAdmins);
+
 router.get('/admins/:id', authMiddleware, adminController.getAdmin);
+
+router.get('/admins/:id', authMiddleware, (req, res) => {
+  // Single admin fetch for edit
+  const id = req.params.id;
+  db.execute(`SELECT id, fullName, email, role, isActive FROM admins WHERE id = ?`, [id])
+    .then(([rows]) => {
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Admin not found' });
+      }
+      res.json({ success: true, admin: rows[0] });
+    })
+    .catch(err => {
+      console.error('Get single admin error:', err);
+      res.status(500).json({ success: false, message: 'Server error' });
+    });
+});
+
 router.post('/admins', authMiddleware, adminController.createAdmin);
 router.put('/admins/:id', authMiddleware, adminController.updateAdmin);
 router.get('/admins/:id', authMiddleware, adminController.getAdmin);
