@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { FaEdit, FaTrash } from 'react-icons/fa';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import axios from 'axios';
@@ -24,6 +25,33 @@ const UserProfile = () => {
   const [friendshipStatus, setFriendshipStatus] = useState('none');
   const [friendRequestId, setFriendRequestId] = useState(null);
   const [friendActionLoading, setFriendActionLoading] = useState(false);
+  const [userPosts, setUserPosts] = useState([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
+  const [editedContent, setEditedContent] = useState('');
+  const [deletingPostId, setDeletingPostId] = useState(null);
+  const [postActionLoading, setPostActionLoading] = useState(false);
+
+  // Fetch posts function
+      const fetchPosts = async () => {
+        console.log('Fetching posts for profile:', id); // debug
+    setPostsLoading(true);
+    try {
+const postsResponse = await axios.get(`/api/profile/${id}/posts`);
+      if (postsResponse.data && postsResponse.data.posts) {
+          console.log('Posts response:', postsResponse.data.posts[0]); // debug post structure
+          setUserPosts(postsResponse.data.posts);
+      } else {
+        setUserPosts([]);
+      }
+    } catch (err) {
+      console.error('Error fetching posts:', err);
+      toast.error('Failed to load posts');
+      setUserPosts([]);
+    } finally {
+      setPostsLoading(false);
+    }
+  };
 
 
   const handleEdit = () => {
@@ -35,24 +63,44 @@ const UserProfile = () => {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
+      const formData = new FormData();
+      
+      // Append basic fields
+      formData.append('fullName', editedUser.fullName);
+      formData.append('email', editedUser.email);
+      formData.append('number', editedUser.number);
+      formData.append('dateOfBirth', editedUser.dateOfBirth);
+      formData.append('gender', editedUser.gender);
+      
+      // Append files if present
+      if (editedUser.avatarFile) {
+        formData.append('avatarFile', editedUser.avatarFile);
+      }
+      if (editedUser.coverPhotoFile) {
+        formData.append('coverPhotoFile', editedUser.coverPhotoFile);
+      }
+      
       const response = await axios.put(
-        `http://localhost:8000/api/users/profile/${id}`,
-        editedUser,
+        `http://localhost:8000/api/profile/${id}`,
+        formData,
         {
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
           }
         }
       );
+      
       if (response.data.success) {
         setUser(response.data.user);
+        toast.success('Profile updated!');
         setIsEditing(false);
       } else {
-        alert('Failed to update profile');
+        toast.error('Failed to update profile');
       }
     } catch (err) {
       console.error('Profile update error:', err);
-      alert('Error updating profile');
+      toast.error(err.response?.data?.message || 'Error updating profile');
     } finally {
       setSaving(false);
     }
@@ -274,6 +322,76 @@ const UserProfile = () => {
     }
   };
 
+  // Post handlers
+  const handleEditPost = (post) => {
+    setEditingPost(post);
+    setEditedContent(post.content);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingPost || !editedContent.trim()) return;
+    
+    setPostActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(
+        `http://localhost:8000/api/posts/${editingPost.id}`,
+        {
+          userId: currentUser.id,
+          content: editedContent.trim(),
+          imageUrl: editingPost.image_url
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      );
+      
+      if (response.data.success) {
+        toast.success('Post updated!');
+        setEditingPost(null);
+        setEditedContent('');
+        await fetchPosts();
+      }
+    } catch (err) {
+      console.error('Edit post error:', err);
+      toast.error(err.response?.data?.message || 'Failed to update post');
+    } finally {
+      setPostActionLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPost(null);
+    setEditedContent('');
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (!confirm('Are you sure you want to delete this post?')) return;
+    
+    setPostActionLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.delete(`http://localhost:8000/api/posts/${postId}`, {
+        data: { userId: currentUser.id },
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (response.data.success) {
+        toast.success('Post deleted!');
+        await fetchPosts();
+      }
+    } catch (err) {
+      console.error('Delete post error:', err);
+      toast.error(err.response?.data?.message || 'Failed to delete post');
+    } finally {
+      setPostActionLoading(false);
+    }
+  };
+
   // Handle message button click
   const handleMessage = () => {
     if (!user) return;
@@ -281,28 +399,32 @@ const UserProfile = () => {
   };
 
 
+  // Fetch user profile and posts
   useEffect(() => {
+    const fetchUserData = async () => {
+      if (!id) return;
 
-
-    const fetchUserProfile = async () => {
       try {
-        const response = await axios.get(`http://localhost:8000/api/users/profile/${id}`);
-        if (response.data.success) {
-          setUser(response.data.user);
-        } else {
-          setError('Failed to load user profile');
+        // Fetch profile
+        const profileResponse = await axios.get(`http://localhost:8000/api/profile/${id}`);
+        if (profileResponse.data.success) {
+          setUser(profileResponse.data.user);
         }
+
+        // Fetch posts
+        await fetchPosts();
       } catch (err) {
-        setError('Error loading user profile');
-        console.error('Profile fetch error:', err);
+        console.error('Error fetching user data:', err);
+        if (err.response?.status !== 404) {
+          setError('Error loading profile');
+        }
       } finally {
         setLoading(false);
+        setPostsLoading(false);
       }
     };
 
-    if (id) {
-      fetchUserProfile();
-    }
+    fetchUserData();
   }, [id]);
 
   if (loading) {
@@ -531,22 +653,30 @@ const UserProfile = () => {
                 </select>
               </div>
               <div className="form-group">
-                <label htmlFor="coverPhoto">Cover Photo URL</label>
+                <label>Avatar</label>
                 <input
-                  type="url"
-                  id="coverPhoto"
-                  value={editedUser.coverPhoto || ''}
-                  onChange={(e) => setEditedUser({ ...editedUser, coverPhoto: e.target.value })}
+                  type="file"
+                  id="avatarFile"
+                  name="avatarFile"
+                  accept="image/*"
+                  onChange={(e) => setEditedUser({ ...editedUser, avatarFile: e.target.files[0] })}
                 />
+{editedUser?.avatar && (
+                  <img src={editedUser.avatar ? editedUser.avatar.replace(/^https?:\/\/localhost:\\d+/, '') : null} alt="Preview" className="preview-image" />
+                )}
               </div>
               <div className="form-group">
-                <label htmlFor="avatar">Avatar URL</label>
+                <label>Cover Photo</label>
                 <input
-                  type="url"
-                  id="avatar"
-                  value={editedUser.avatar || ''}
-                  onChange={(e) => setEditedUser({ ...editedUser, avatar: e.target.value })}
+                  type="file"
+                  id="coverPhotoFile"
+                  name="coverPhotoFile"
+                  accept="image/*"
+                  onChange={(e) => setEditedUser({ ...editedUser, coverPhotoFile: e.target.files[0] })}
                 />
+{editedUser?.coverPhoto && (
+                  <img src={editedUser.coverPhoto ? editedUser.coverPhoto.replace(/^https?:\/\/localhost:\\d+/, '') : null} alt="Preview" className="preview-image cover-preview" />
+                )}
               </div>
               <div className="form-actions">
                 <button type="button" onClick={handleCancel} className="cancel-btn">Cancel</button>
@@ -635,24 +765,102 @@ const UserProfile = () => {
             </div>
           </div>
 
-          {/* Activity Section */}
-          <div className="activity-section">
+          {/* Posts Section */}
+          <div className="posts-section">
             <div className="section-card">
               <h2 className="section-title">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M13 7h-2v4H7v2h4v4h2v-4h4v-2h-4V7zm-1-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
                 </svg>
-                Recent Activity
+                Posts ({user.posts})
               </h2>
-              <div className="activity-placeholder">
-                <div className="activity-icon">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" opacity="0.3">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                  </svg>
+              {postsLoading ? (
+                <div className="posts-loading">Loading posts...</div>
+              ) : userPosts.length === 0 ? (
+                <div className="no-posts-placeholder">
+                  <p>No posts yet</p>
+                  <span>This user hasn't posted anything</span>
                 </div>
-                <p>No recent activity to show</p>
-                <span>Activity will appear here when available</span>
-              </div>
+              ) : (
+                <div className="posts-grid">
+{userPosts.map((post) => {
+                    const isOwnPost = currentUser && currentUser.id == post.user_id; // loose check, console.log for debug
+                    console.log('Post user_id:', post.user_id, 'Current user:', currentUser?.id, 'Own:', isOwnPost);
+                    const isEditing = editingPost && editingPost.id === post.id;
+                    
+                    return (
+                      <div key={post.id} className={`post-card ${isEditing ? 'post-edit-mode' : ''}`}>
+                        {post.image_url && (
+                          <img 
+src={post.image_url ? post.image_url.replace(/^https?:\/\/localhost:\\d+/, '') : null}
+                            alt="Post" 
+                            className="post-image" 
+                          />
+                        )}
+                        <div className="post-content">
+                          {isEditing ? (
+                            <>
+                              <textarea
+                                value={editedContent}
+                                onChange={(e) => setEditedContent(e.target.value)}
+                                placeholder="Edit post content..."
+                                className="post-edit-textarea"
+                              />
+                              <div className="post-edit-actions">
+                                <button 
+                                  onClick={handleSaveEdit}
+                                  disabled={postActionLoading || !editedContent.trim()}
+                                  className="edit-save-btn"
+                                >
+                                  Save
+                                </button>
+                                <button 
+                                  onClick={handleCancelEdit}
+                                  disabled={postActionLoading}
+                                  className="edit-cancel-btn"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <p>{post.content}</p>
+{true && (
+                                    <div className="post-actions">
+                                      <button 
+                                        onClick={() => handleEditPost(post)}
+                                        title="Edit post"
+                                        disabled={postActionLoading}
+                                        className="post-edit-btn"
+                                      >
+                                        <FaEdit />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleDeletePost(post.id)}
+                                        title="Delete post"
+                                        disabled={postActionLoading}
+                                        className="post-delete-btn"
+                                      >
+                                        <FaTrash />
+                                      </button>
+                                    </div>
+                                  )}
+                            </>
+                          )}
+                          <div className="post-meta">
+                            <span className="post-likes">{post.likes_count} likes</span>
+                            <span className="post-comments">{post.comments_count} comments</span>
+                            <span className="post-time">
+                              {new Date(post.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

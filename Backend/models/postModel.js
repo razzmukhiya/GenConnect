@@ -10,6 +10,7 @@ exports.createPostTable = async () => {
         image_url VARCHAR(500),
         likes_count INT DEFAULT 0,
         comments_count INT DEFAULT 0,
+        shares_count INT DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -65,12 +66,33 @@ exports.createPostCommentsTable = async () => {
   }
 };
 
+exports.createPostSharesTable = async () => {
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS post_shares (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        post_id INT NOT NULL,
+        user_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_post_share (post_id, user_id)
+      )
+    `);
+    console.log("Post shares table created or already exists");
+  } catch (err) {
+    console.error("Create post_shares table error:", err);
+    throw new Error(`Create post_shares table failed: ${err.message}`);
+  }
+};
+
 exports.createPost = async (userId, content, imageUrl = null) => {
   try {
     await exports.createPostTable();
+    await exports.createPostSharesTable();
 
     const [result] = await pool.execute(
-      'INSERT INTO posts (user_id, content, image_url) VALUES (?, ?, ?)',
+      'INSERT INTO posts (user_id, content, image_url, shares_count) VALUES (?, ?, ?, 0)',
       [userId, content, imageUrl]
     );
 
@@ -85,6 +107,7 @@ exports.createPost = async (userId, content, imageUrl = null) => {
       image_url: imageUrl,
       likes_count: 0,
       comments_count: 0,
+      shares_count: 0,
       created_at: new Date()
     };
   } catch (err) {
@@ -96,7 +119,7 @@ exports.createPost = async (userId, content, imageUrl = null) => {
 exports.getAllPosts = async () => {
   try {
     const [rows] = await pool.execute(
-      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.created_at,
+      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.shares_count, p.created_at,
               u.fullName, pr.avatar
        FROM posts p
        JOIN users u ON p.user_id = u.id
@@ -108,12 +131,43 @@ exports.getAllPosts = async () => {
     console.error("Get all posts error:", err);
     throw new Error(`Get all posts failed: ${err.message}`);
   }
+}
+
+exports.sharePost = async (postId, userId) => {
+  try {
+    await exports.createPostSharesTable();
+
+    const [existingShare] = await pool.execute(
+      'SELECT * FROM post_shares WHERE post_id = ? AND user_id = ?',
+      [postId, userId]
+    );
+
+    if (existingShare.length > 0) {
+      throw new Error("You have already shared this post");
+    }
+
+    await pool.execute(
+      'INSERT INTO post_shares (post_id, user_id) VALUES (?, ?)',
+      [postId, userId]
+    );
+
+    await pool.execute(
+      'UPDATE posts SET shares_count = shares_count + 1 WHERE id = ?',
+      [postId]
+    );
+
+    console.log("Post shared successfully");
+    return true;
+  } catch (err) {
+    console.error("Share post error:", err);
+    throw new Error(`Share post failed: ${err.message}`);
+  }
 };
 
 exports.getPostsByUserId = async (userId) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.created_at,
+      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.shares_count, p.created_at,
               u.fullName, pr.avatar
        FROM posts p
        JOIN users u ON p.user_id = u.id
@@ -132,7 +186,7 @@ exports.getPostsByUserId = async (userId) => {
 exports.getPostById = async (postId) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.created_at,
+      `SELECT p.id, p.user_id, p.content, p.image_url, p.likes_count, p.comments_count, p.shares_count, p.created_at,
               u.fullName, pr.avatar
        FROM posts p
        JOIN users u ON p.user_id = u.id

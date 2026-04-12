@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare, FaFlag, FaEllipsisV, FaCheckCircle, FaPlus } from 'react-icons/fa';
+import { FaCamera, FaVideo, FaTag, FaSmile, FaMapMarkerAlt, FaThumbsUp, FaComment, FaShare, FaFlag, FaEllipsisV } from 'react-icons/fa';
 import Navbar from '../Components/Navbar';
 import '../Styles/Homepage.css';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 const Homepage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,6 +20,9 @@ const Homepage = () => {
   const [reportModal, setReportModal] = useState({ open: false, postId: null });
   const [reportReason, setReportReason] = useState('spam');
   const [otherReason, setOtherReason] = useState('');
+  const [expandedComments, setExpandedComments] = useState({});
+  const [commentInputs, setCommentInputs] = useState({});
+  const [comments, setComments] = useState({});
 
   const currentUser = JSON.parse(localStorage.getItem('user')) || { id: 1, fullName: 'Your Name' };
 
@@ -32,20 +35,22 @@ const Homepage = () => {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/posts`);
       const data = await response.json();
-      
+
       if (data.success) {
         const formattedPosts = data.posts.map(post => ({
           id: post.id,
           author: post.fullName,
-          avatar: post.avatar ? post.avatar.charAt(0).toUpperCase() : post.fullName.charAt(0).toUpperCase(),
+          avatar: post.avatar
+            ? post.avatar.charAt(0).toUpperCase()
+            : post.fullName.charAt(0).toUpperCase(),
           content: post.content,
-          image: post.image_url,
+image: post.image_url ? post.image_url.replace(/^https?:\/\/localhost:\\d+/, '') : null,
           timestamp: formatTimestamp(post.created_at),
           likes: post.likes_count,
           comments: post.comments_count,
+          shares: post.shares_count || 0,
         }));
         setPosts(formattedPosts);
-        
         formattedPosts.forEach(post => checkLikeStatus(post.id));
       } else {
         setError('Failed to fetch posts');
@@ -62,7 +67,6 @@ const Homepage = () => {
     const date = new Date(timestamp);
     const now = new Date();
     const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
-    
     if (diffInHours < 1) return 'Just now';
     if (diffInHours === 1) return '1 hour ago';
     if (diffInHours < 24) return `${diffInHours} hours ago`;
@@ -74,7 +78,6 @@ const Homepage = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/posts/${postId}/like-status?userId=${currentUser.id}`);
       const data = await response.json();
-      
       if (data.success && data.hasLiked) {
         setLikedPosts(prev => new Set([...prev, postId]));
       }
@@ -83,44 +86,119 @@ const Homepage = () => {
     }
   };
 
+  const handleCommentClick = async (postId) => {
+    setExpandedComments(prev => ({ ...prev, [postId]: !prev[postId] }));
+    
+    // Fetch comments if not loaded
+    if (!comments[postId]) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments`);
+        const data = await response.json();
+        if (data.success) {
+          setComments(prev => ({ ...prev, [postId]: data.comments }));
+        }
+      } catch (err) {
+        console.error('Error fetching comments:', err);
+      }
+    }
+  };
+
+  const handleSharePost = async (postId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setSuccessMessage('Post shared!');
+        setTimeout(() => setSuccessMessage(null), 2000);
+        // Refresh posts to update share count
+        fetchPosts();
+      } else {
+        setError(data.message || 'Failed to share post');
+      }
+    } catch (err) {
+      console.error('Error sharing post:', err);
+      setError('Error connecting to server');
+    }
+  };
+
+  const handleCommentSubmit = async (postId, e) => {
+    e.preventDefault();
+    const input = commentInputs[postId];
+    if (!input || !input.trim()) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, comment: input.trim() }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        // Refresh comments for this post
+        const fetchedCommentsResp = await fetch(`${API_BASE_URL}/posts/${postId}/comments`);
+        const fetchedCommentsData = await fetchedCommentsResp.json();
+        if (fetchedCommentsData.success) {
+          setComments(prev => ({ ...prev, [postId]: fetchedCommentsData.comments.map(c => ({
+            id: c.id,
+            content: c.comment,
+            fullName: c.fullName,
+            avatar: c.avatar
+          })) || [] }));
+        }
+        
+        // Refresh post to update count
+        // Skip post refresh after comment to avoid unnecessary API calls
+        setPosts(prevPosts => prevPosts.map(post => 
+          post.id === postId 
+            ? { ...post, comments: post.comments + 1 }
+            : post
+        ));
+        
+        setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+        setSuccessMessage('Comment posted!');
+        setTimeout(() => setSuccessMessage(null), 2000);
+      } else {
+        setError(data.message || 'Failed to post comment');
+      }
+    } catch (err) {
+      console.error('Error posting comment:', err);
+      setError('Error connecting to server');
+    }
+  };
+
+  const handleCommentInputChange = (postId, value) => {
+    setCommentInputs(prev => ({ ...prev, [postId]: value }));
+  };
+
   const handleLikePost = async (postId) => {
     try {
       const isLiked = likedPosts.has(postId);
-      const endpoint = `${API_BASE_URL}/posts/${postId}/like`;
-      const method = isLiked ? 'DELETE' : 'POST';
-      
-      const response = await fetch(endpoint, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: currentUser.id,
-        }),
+      const response = await fetch(`${API_BASE_URL}/posts/${postId}/like`, {
+        method: isLiked ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id }),
       });
-
       const data = await response.json();
 
       if (data.success) {
         setLikedPosts(prev => {
           const newSet = new Set(prev);
-          if (isLiked) {
-            newSet.delete(postId);
-          } else {
-            newSet.add(postId);
-          }
+          isLiked ? newSet.delete(postId) : newSet.add(postId);
           return newSet;
         });
-
-        setPosts(prev => prev.map(post => {
-          if (post.id === postId) {
-            return {
-              ...post,
-              likes: isLiked ? post.likes - 1 : post.likes + 1
-            };
-          }
-          return post;
-        }));
+        setPosts(prev =>
+          prev.map(post =>
+            post.id === postId
+              ? { ...post, likes: isLiked ? post.likes - 1 : post.likes + 1 }
+              : post
+          )
+        );
       } else {
         setError(data.message || 'Failed to like/unlike post');
       }
@@ -147,18 +225,14 @@ const Homepage = () => {
       const formData = new FormData();
       formData.append('userId', currentUser.id);
       formData.append('content', postContent.trim());
+
       if (selectedImage && selectedImage.startsWith('data:')) {
-        // Convert base64 to blob
-        const response = await fetch(selectedImage);
-        const blob = await response.blob();
+        const res = await fetch(selectedImage);
+        const blob = await res.blob();
         formData.append('image', blob, 'post-image.jpg');
       }
 
-      const response = await fetch(`${API_BASE_URL}/posts`, {
-        method: 'POST',
-        body: formData,
-      });
-
+      const response = await fetch(`${API_BASE_URL}/posts`, { method: 'POST', body: formData });
       const data = await response.json();
 
       if (data.success) {
@@ -167,12 +241,11 @@ const Homepage = () => {
           author: currentUser.fullName,
           avatar: currentUser.fullName.charAt(0).toUpperCase(),
           content: data.post.content,
-          image: data.post.image_url,
+image: data.post.image_url ? data.post.image_url.replace(/^https?:\/\/localhost:\\d+/, '') : null,
           timestamp: 'Just now',
           likes: 0,
           comments: 0,
         };
-        
         setPosts([newPost, ...posts]);
         setPostContent('');
         setSelectedImage(null);
@@ -199,8 +272,6 @@ const Homepage = () => {
     }
   };
 
-  // ... rest of the report functionality remains the same ...
-
   const handleReportClick = (postId) => {
     setReportModal({ open: true, postId });
     setReportReason('spam');
@@ -220,31 +291,21 @@ const Homepage = () => {
       setError('Please select a reason or provide details for "Other"');
       return;
     }
-
     const finalReason = reportReason === 'other' ? otherReason.trim() : reportReason;
 
     try {
       setError(null);
       const response = await fetch(`${API_BASE_URL}/posts/${reportModal.postId}/report`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          reporterId: currentUser.id,
-          reason: finalReason,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reporterId: currentUser.id, reason: finalReason }),
       });
-
       const data = await response.json();
 
       if (data.success) {
         setReportedPosts(prev => new Set([...prev, reportModal.postId]));
         setSuccessMessage('Post reported successfully! ✅');
-        setTimeout(() => {
-          setSuccessMessage(null);
-          handleReportClose();
-        }, 1500);
+        setTimeout(() => { setSuccessMessage(null); handleReportClose(); }, 1500);
       } else {
         setError(data.message || 'Failed to report post');
       }
@@ -254,11 +315,9 @@ const Homepage = () => {
     }
   };
 
-  const toggleMenu = (postId) => {
-    setMenuStates(prev => ({
-      ...prev,
-      [postId]: !prev[postId]
-    }));
+  const toggleMenu = (postId, e) => {
+    e.stopPropagation();
+    setMenuStates(prev => ({ ...prev, [postId]: !prev[postId] }));
   };
 
   const handleCopyLink = (postId) => {
@@ -266,23 +325,23 @@ const Homepage = () => {
     navigator.clipboard.writeText(postLink).then(() => {
       setSuccessMessage('Post link copied! 📋');
       setTimeout(() => setSuccessMessage(null), 2000);
-    }).catch(() => {
-      setError('Failed to copy link');
-    });
-    toggleMenu(postId);
+    }).catch(() => setError('Failed to copy link'));
+    setMenuStates({});
   };
 
   const handleNotInterested = (postId) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
     setSuccessMessage('Post hidden from feed');
     setTimeout(() => setSuccessMessage(null), 2000);
-    toggleMenu(postId);
+    setMenuStates({});
   };
 
-  const closeAllMenus = (e) => {
-    if (!e.target.closest('.post-menu-dropdown')) {
-      setMenuStates({});
-    }
-  };
+  // Close menus when clicking outside
+  useEffect(() => {
+    const closeMenus = () => setMenuStates({});
+    document.addEventListener('click', closeMenus);
+    return () => document.removeEventListener('click', closeMenus);
+  }, []);
 
   return (
     <>
@@ -290,13 +349,20 @@ const Homepage = () => {
       <div className="homepage-container">
         <div className="homepage-content">
           <div className="main-feed">
-            {/* Create Post - Make clickable obvious */}
-            <div className="create-post-section" role="button" tabIndex="0" onClick={handleCreatePostClick} onKeyDown={(e) => e.key === 'Enter' && handleCreatePostClick(e)}>
+
+            {/* ── Create Post ── */}
+            <div
+              className="create-post-section"
+              role="button"
+              tabIndex="0"
+              onClick={handleCreatePostClick}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreatePostClick(e)}
+            >
               <div className="create-post-header">
                 <div className="create-post-avatar">
                   {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'Y'}
                 </div>
-                <div className="create-post-input" style={{cursor: 'text'}}>
+                <div className="create-post-input">
                   What's on your mind, {currentUser.fullName || 'Friend'}?
                 </div>
               </div>
@@ -308,29 +374,14 @@ const Homepage = () => {
                   <FaVideo /> Video
                 </button>
               </div>
-              <div style={{textAlign: 'center', marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem'}}>
-                Click anywhere to create post
-              </div>
             </div>
 
-            {successMessage && (
-              <div className="success-message">
-                {successMessage}
-              </div>
-            )}
+            {/* ── Feedback Messages ── */}
+            {successMessage && <div className="success-message">{successMessage}</div>}
+            {error && <div className="error-message">{error}</div>}
+            {loading && <div className="loading-message">Loading posts...</div>}
 
-            {error && (
-              <div className="error-message">
-                {error}
-              </div>
-            )}
-
-            {loading && (
-              <div className="loading-message">
-                Loading posts...
-              </div>
-            )}
-
+            {/* ── Posts Feed ── */}
             <div className="posts-feed-section">
               <h2>Posts from Friends & Others</h2>
               <div className="posts-container">
@@ -341,88 +392,114 @@ const Homepage = () => {
                 ) : (
                   posts.map(post => (
                     <div key={post.id} className="post-card">
+
+                      {/* Header */}
                       <div className="post-header">
                         <div className="post-avatar">{post.avatar}</div>
                         <div className="post-author-info">
                           <h3 className="post-author">{post.author}</h3>
                           <span className="post-timestamp">{post.timestamp}</span>
                         </div>
-                      </div>
-                      <div className="post-content">
-                        <p>{post.content}</p>
-                        {post.image && (
-                          <img src={post.image} alt="Post content" className="post-image" />
-                        )}
-                      </div>
-                      <div className="post-actions">
-                        <button 
-                          className={`action-btn like-btn ${likedPosts.has(post.id) ? 'liked' : ''}`}
-                          onClick={() => handleLikePost(post.id)}
-                        >
-                          <FaThumbsUp /> {post.likes} {post.likes === 1 ? 'Like' : 'Likes'}
-                        </button>
-                        <button className="action-btn comment-btn">
-                          <FaComment /> {post.comments} {post.comments === 1 ? 'Comment' : 'Comments'}
-                        </button>
-                        <button className="action-btn share-btn">
-                          <FaShare /> Share
-                        </button>
-                        <div className="post-menu-container">
-                          <button 
-                            className="action-btn more-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleMenu(post.id);
-                            }}
-                          >
-                            <FaEllipsisV />
-                          </button>
+                        <div className="post-menu" onClick={(e) => toggleMenu(post.id, e)}>
+                          <FaEllipsisV />
                           {menuStates[post.id] && (
                             <div className="post-menu-dropdown">
-                              <button 
-                                className="dropdown-item"
-                                onClick={() => handleReportClick(post.id)}
-                                disabled={reportedPosts.has(post.id)}
-                              >
-                                {reportedPosts.has(post.id) ? (
-                                  <>
-                                    <FaCheckCircle style={{ marginRight: '0.5rem' }} />
-                                    Reported
-                                  </>
-                                ) : (
-                                  'Report Post'
-                                )}
-                              </button>
-                              <button 
-                                className="dropdown-item"
-                                onClick={() => handleCopyLink(post.id)}
-                              >
-                                Copy Link
-                              </button>
-                              <button 
-                                className="dropdown-item"
-                                onClick={() => handleNotInterested(post.id)}
-                              >
-                                Not Interested
+                              <button onClick={() => handleCopyLink(post.id)}>🔗 Copy link</button>
+                              <button onClick={() => handleNotInterested(post.id)}>🚫 Not interested</button>
+                              <button onClick={() => handleReportClick(post.id)}>
+                                <FaFlag /> Report post
                               </button>
                             </div>
                           )}
                         </div>
                       </div>
+
+                      {/* Body */}
+                      <div className="post-body">
+                        <p>{post.content}</p>
+                        {post.image ? (
+                          <img src={post.image} alt="Post content" className="post-image" />
+                        ) : null}
+                      </div>
+
+                      {/* Actions */}
+<div className="post-actionss">
+                        <button
+                          className={`action-button like-btn ${likedPosts.has(post.id) ? 'liked' : ''}`}
+                          onClick={() => handleLikePost(post.id)}
+                        >
+                          <FaThumbsUp /> {post.likes}
+                        </button>
+                        <button
+                          className="action-button comment-btn"
+                          onClick={() => handleCommentClick(post.id)}
+                        >
+                          <FaComment /> {post.comments}
+                        </button>
+                        <button 
+                          className="action-button share-btn" 
+                          onClick={() => handleSharePost(post.id)}
+                        >
+                          <FaShare /> {post.shares || 0}
+                        </button>
+                      </div>
+
+                      {/* Comments */}
+                      {expandedComments[post.id] && (
+                        <div className="comments-section expanded">
+                          <div className="comment-list">
+                            {comments[post.id]?.map(comment => {
+                              const avatarUrl = comment.avatar ? comment.avatar.replace(/^https?:\/\/[^\/]+/, '') : null;
+                              const avatarInitial = comment.fullName ? comment.fullName.charAt(0).toUpperCase() : '?';
+                              return (
+                                <div key={comment.id} className="comment-bubble">
+                                  {avatarUrl ? (
+                                    <img src={avatarUrl} alt="" className="comment-avatar-img" />
+                                  ) : (
+                                    <div className="comment-avatar">{avatarInitial}</div>
+                                  )}
+                                  <div className="comment-content">{comment.content}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <form
+                            className="comment-input-container"
+                            onSubmit={(e) => handleCommentSubmit(post.id, e)}
+                          >
+                            <div className="comment-avatar-you">
+                              {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'Y'}
+                            </div>
+                            <input
+                              className="comment-input"
+                              placeholder="Write a comment..."
+                              value={commentInputs[post.id] || ''}
+                              onChange={(e) => handleCommentInputChange(post.id, e.target.value)}
+                            />
+                            <button
+                              className="comment-post-btn"
+                              type="submit"
+                              disabled={!commentInputs[post.id]?.trim()}
+                            >
+                              Post
+                            </button>
+                          </form>
+                        </div>
+                      )}
+
                     </div>
                   ))
                 )}
               </div>
             </div>
+
           </div>
         </div>
       </div>
 
-      {/* Create Post Modal - Guaranteed to work */}
+      {/* ── Create Post Modal ── */}
       {isModalOpen && (
-        <div className="modal-overlay" onClick={(e) => {
-          if (e.target === e.currentTarget) setIsModalOpen(false);
-        }}>
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
           <div className="modal-content">
             <div className="modal-header">
               <h3>Create Post</h3>
@@ -436,7 +513,6 @@ const Homepage = () => {
                   </div>
                   <span>{currentUser.fullName || 'Your Name'}</span>
                 </div>
-
                 <textarea
                   value={postContent}
                   onChange={(e) => setPostContent(e.target.value)}
@@ -455,18 +531,22 @@ const Homepage = () => {
                 <div className="add-to-post">
                   <span>Add to your post</span>
                   <div className="add-options">
-                    <label className="add-option">
+                    <label className="add-option" data-tooltip="Photo">
                       <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
                       <FaCamera />
                     </label>
-                    <button type="button" className="add-option"><FaTag /></button>
-                    <button type="button" className="add-option"><FaSmile /></button>
-                    <button type="button" className="add-option"><FaMapMarkerAlt /></button>
+                    <button type="button" className="add-option" data-tooltip="Tag"><FaTag /></button>
+                    <button type="button" className="add-option" data-tooltip="Feeling"><FaSmile /></button>
+                    <button type="button" className="add-option" data-tooltip="Location"><FaMapMarkerAlt /></button>
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="submit" className="post-submit-btn" disabled={(!postContent.trim() && !selectedImage) || submitting}>
+                <button
+                  type="submit"
+                  className="post-submit-btn"
+                  disabled={(!postContent.trim() && !selectedImage) || submitting}
+                >
                   {submitting ? 'Posting...' : 'Post'}
                 </button>
               </div>
@@ -475,35 +555,35 @@ const Homepage = () => {
         </div>
       )}
 
-      {/* Report Modal */}
+      {/* ── Report Modal ── */}
       {reportModal.open && (
         <div className="modal-overlay" onClick={handleReportClose}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3><FaFlag style={{ marginRight: '0.5rem', color: '#ff6b6b' }} />Report Post</h3>
+              <h3><FaFlag style={{ marginRight: '0.5rem', color: '#E03131' }} />Report Post</h3>
               <button className="modal-close" onClick={handleReportClose}>×</button>
             </div>
             <form onSubmit={handleReportSubmit}>
               <div className="modal-body">
                 <div className="report-reason-section">
                   <label className="report-label">What's the issue?</label>
-                  <select 
-                    value={reportReason} 
+                  <select
+                    value={reportReason}
                     onChange={(e) => setReportReason(e.target.value)}
                     className="modal-select"
                   >
                     <option value="spam">🕸️ Spam</option>
                     <option value="harassment">👥 Harassment</option>
-                    <option value="inappropriate_content">🚫 Inappropriate</option>
-                    <option value="violence">⚠️ Violent</option>
-                    <option value="misinformation">❌ Misinfo</option>
+                    <option value="inappropriate_content">🚫 Inappropriate content</option>
+                    <option value="violence">⚠️ Violent content</option>
+                    <option value="misinformation">❌ Misinformation</option>
                     <option value="other">📝 Other</option>
                   </select>
                   {reportReason === 'other' && (
                     <textarea
                       value={otherReason}
                       onChange={(e) => setOtherReason(e.target.value)}
-                      placeholder="Details..."
+                      placeholder="Please describe the issue..."
                       className="modal-textarea"
                       rows="3"
                     />

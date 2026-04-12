@@ -1,12 +1,13 @@
-# Post Creation Fix + Centering
+# GenConnect TODO Tracker
 
-## Issue: Cannot create new post
-## Diagnosis: Backend API mismatch or CSS click blocker
+## Active Tasks:
 
-## Fixes:
-1. 🔄 Verify API_BASE_URL & backend status
-2. 🔄 Ensure create-post-section click opens modal
-3. 🔄 Check console errors
-4. 🔄 Test modal submission
+### 1. Full Post Interactions ✅ Layout + 🔄 Comments/Share Backend
+**GenConnect/TODO-FULL-POST-ACTIONS.md**
 
-**Next: Debug & fix post creation**
+**Progress:** Layout complete. Next: Backend shares table/endpoint → Frontend API integration.
+
+### Previous Tasks:
+- ✅ Post-actions below image (Homepage.css spacing/divider)
+
+Refresh dev server (localhost:5174) for layout preview.

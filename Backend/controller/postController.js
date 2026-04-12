@@ -2,7 +2,8 @@ const postModel = require('../models/postModel');
 
 exports.createPost = async (req, res) => {
   try {
-    const { userId, content, imageUrl } = req.body;
+    const { userId, content } = req.body;
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
     if (!userId) {
       return res.status(400).json({ success: false, message: 'User ID is required' });
@@ -12,7 +13,7 @@ exports.createPost = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Post content is required' });
     }
 
-    const post = await postModel.createPost(userId, content.trim(), imageUrl || null);
+    const post = await postModel.createPost(userId, content.trim(), imageUrl);
 
     res.status(201).json({ 
       success: true, 
@@ -29,9 +30,32 @@ exports.getAllPosts = async (req, res) => {
   try {
     const posts = await postModel.getAllPosts();
     
+    // Normalize and ensure full image URLs - FIX for malformed paths
+    const fullPosts = posts.map(post => {
+      let normalizedImageUrl = post.image_url;
+      
+      if (normalizedImageUrl) {
+        // If already full URL, keep as-is
+        if (normalizedImageUrl.startsWith('http')) {
+          normalizedImageUrl = normalizedImageUrl;
+        } else {
+          // Ensure /uploads/ prefix for relative paths
+          if (!normalizedImageUrl.startsWith('/uploads/')) {
+            normalizedImageUrl = '/uploads/' + normalizedImageUrl.split('/uploads/')[1] || normalizedImageUrl;
+          }
+          normalizedImageUrl = `http://localhost:8000${normalizedImageUrl}`;
+        }
+      }
+      
+      return {
+        ...post,
+        image_url: normalizedImageUrl || null
+      };
+    });
+    
     res.json({ 
       success: true, 
-      posts 
+      posts: fullPosts 
     });
   } catch (error) {
     console.error('Get all posts error:', error);
@@ -315,5 +339,35 @@ exports.checkLikeStatus = async (req, res) => {
   } catch (error) {
     console.error('Check like status error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.sharePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { userId } = req.body;
+
+    if (!postId) {
+      return res.status(400).json({ success: false, message: 'Post ID is required' });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required' });
+    }
+
+    await postModel.sharePost(postId, userId);
+
+    res.json({ 
+      success: true, 
+      message: 'Post shared successfully' 
+    });
+  } catch (error) {
+    console.error('Share post error:', error);
+    
+    if (error.message.includes("already shared")) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
 };

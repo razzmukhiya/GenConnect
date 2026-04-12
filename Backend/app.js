@@ -26,15 +26,8 @@ db.getConnection()
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
-
-// Import CommonJS routes dynamically
-const usersRouter = require("./routes/usersRoutes");
-const messagesRouter = require("./routes/messagesRoutes");
-const postsRouter = require("./routes/postsRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const notificationsRoutes = require("./routes/notificationsRoutes");
-const publicAdminRoutes = require("./routes/publicAdminRoutes");
 
 
 app.use('/api', usersRouter);

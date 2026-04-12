@@ -164,7 +164,24 @@ exports.getFollowers = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.params.id;
-    const { fullName, email, number, dateOfBirth, gender, coverPhoto, avatar } = req.body;
+    const { fullName, email, number, dateOfBirth, gender } = req.body;
+    
+    let avatarPath = null;
+    let coverPhotoPath = null;
+
+    // Handle file uploads (multer req.files.fields)
+    if (req.files) {
+      if (req.files.avatarFile && req.files.avatarFile[0]) {
+        avatarPath = `/uploads/${req.files.avatarFile[0].filename}`;
+      }
+      if (req.files.coverPhotoFile && req.files.coverPhotoFile[0]) {
+        coverPhotoPath = `/uploads/${req.files.coverPhotoFile[0].filename}`;
+      }
+    }
+
+    // Fallback to URL from body if no files
+    avatarPath = avatarPath || null;
+    coverPhotoPath = coverPhotoPath || null;
 
     // Update user data (basic fields)
     const [userResult] = await db.execute(
@@ -177,7 +194,7 @@ exports.updateProfile = async (req, res) => {
     }
 
     // Update profile data (coverPhoto and avatar)
-    await userModel.updateProfile(userId, coverPhoto, avatar);
+    await userModel.updateProfile(userId, coverPhotoPath, avatarPath);
 
     // Get updated user data
     const [userRows] = await db.execute(
@@ -442,6 +459,18 @@ exports.getSuggestedUsers = async (req, res) => {
     res.json({ success: true, users: suggestedUsers });
   } catch (error) {
     console.error('Get suggested users error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+exports.getUserPosts = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const postModel = require('../models/postModel');
+    const posts = await postModel.getPostsByUserId(userId);
+    res.json({ success: true, posts });
+  } catch (error) {
+    console.error('Get user posts error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

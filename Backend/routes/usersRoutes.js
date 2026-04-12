@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controller/userController');
+const upload = require('../middleware/uploadMiddleware');
 
 // Signup route
 router.post('/signup', userController.register);
@@ -8,9 +9,13 @@ router.post('/signup', userController.register);
 // Login route
 router.post('/login', userController.login);
 
-// Profile route
-router.get('/users/profile/:id', userController.getProfile);
-router.put('/users/profile/:id', userController.updateProfile);
+// Profile routes
+router.get('/profile/:id', userController.getProfile);
+router.put('/profile/:id', upload.fields([
+  {name: 'avatarFile', maxCount: 1},
+  {name: 'coverPhotoFile', maxCount: 1}
+]), userController.updateProfile);
+router.get('/profile/:id/posts', userController.getUserPosts);
 
 // Friend Request Routes
 router.post('/friend-request', userController.sendFriendRequest);
