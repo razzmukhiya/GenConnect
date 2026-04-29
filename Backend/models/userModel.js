@@ -18,7 +18,7 @@ exports.createUser = async (fullName, email, number, dateOfBirth, gender, passwo
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create users table if not exists (plain text - no keys)
-    await pool.execute(`
+await pool.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         fullName VARCHAR(255) NOT NULL,
@@ -32,7 +32,12 @@ exports.createUser = async (fullName, email, number, dateOfBirth, gender, passwo
         posts INT DEFAULT 0,
         followers INT DEFAULT 0,
         following INT DEFAULT 0,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        isBanned TINYINT(1) DEFAULT 0,
+        bannedBy INT NULL,
+        banReason TEXT NULL,
+        bannedAt TIMESTAMP NULL,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_isBanned (isBanned)
       )
     `);
 

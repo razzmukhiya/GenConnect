@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controller/adminController');
+const db = require('../db/connection');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
-
 // Public routes
+router.post('/register', adminController.register);
 router.post('/login', adminController.login);
 
 // Protected routes (require admin authentication)
@@ -17,32 +18,19 @@ router.put('/change-password', authMiddleware, adminController.changePassword);
 
 // Admin management routes (require authentication)
 router.get('/admins', authMiddleware, adminController.getAllAdmins);
-
 router.get('/admins/:id', authMiddleware, adminController.getAdmin);
-
-router.get('/admins/:id', authMiddleware, (req, res) => {
-  // Single admin fetch for edit
-  const id = req.params.id;
-  db.execute(`SELECT id, fullName, email, role, isActive FROM admins WHERE id = ?`, [id])
-    .then(([rows]) => {
-      if (rows.length === 0) {
-        return res.status(404).json({ success: false, message: 'Admin not found' });
-      }
-      res.json({ success: true, admin: rows[0] });
-    })
-    .catch(err => {
-      console.error('Get single admin error:', err);
-      res.status(500).json({ success: false, message: 'Server error' });
-    });
-});
-
 router.post('/admins', authMiddleware, adminController.createAdmin);
 router.put('/admins/:id', authMiddleware, adminController.updateAdmin);
-router.get('/admins/:id', authMiddleware, adminController.getAdmin);
 router.delete('/admins/:id', authMiddleware, adminController.deleteAdmin);
 
 // User management routes
 router.get('/users', authMiddleware, adminController.getAllUsers);
 router.delete('/users/:id', authMiddleware, adminController.deleteUser);
+
+// Report management routes
+router.post('/posts/:postId/restrict', authMiddleware, adminController.restrictPost);
+router.post('/users/:id/ban', authMiddleware, adminController.banUser);
+
+// Reports list already exists as /reports (analytics + reports)
 
 module.exports = router;

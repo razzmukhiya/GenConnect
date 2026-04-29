@@ -26,12 +26,7 @@ const Reports = () => {
   const fetchReportsData = async () => {
     try {
       const token = localStorage.getItem('adminToken');
-      const response = await fetch('http://localhost:5000/api/admin/reports', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+           const response = await fetch('http://localhost:8000/api/admin/reports', {headers: {'Authorization': `Bearer ${token}`,'Content-Type': 'application/json'}});
 
       if (!response.ok) {
         throw new Error('Failed to fetch reports data');
@@ -66,6 +61,54 @@ const Reports = () => {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  const handleRestrictPost = async (postId, reason) => {
+    if (!window.confirm(`Restrict this post?\nReason: ${reason}`)) return;
+    try {
+      const token = localStorage.getItem('adminToken');
+      const res = await fetch(`http://localhost:8000/api/admin/posts/${postId}/restrict`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: reason || 'Admin restriction' })
+      });
+      if (res.ok) {
+        alert('Post restricted successfully');
+        fetchReportsData();
+      } else {
+        const data = await res.json();
+        alert('Failed to restrict post: ' + (data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  };
+
+  const handleBanUser = async (userId, reason) => {
+    if (!window.confirm(`Ban this user?\nReason: ${reason}`)) return;
+    try {
+      const token = localStorage.getItem('adminToken');
+      const res = await fetch(`http://localhost:8000/api/admin/users/${userId}/ban`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: reason || 'Admin ban' })
+      });
+      if (res.ok) {
+        alert('User banned successfully');
+        fetchReportsData();
+      } else {
+        const data = await res.json();
+        alert('Failed to ban user: ' + (data.message || 'Unknown error'));
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   };
 
   if (loading) {
@@ -110,7 +153,7 @@ const Reports = () => {
     );
   }
 
-  const { statistics, topUsers, topPosts, recentPosts, userGrowth, postGrowth } = reportsData;
+  const { statistics, topUsers, topPosts, recentPosts, userGrowth, postGrowth, reports } = reportsData;
 
   return (
     <div className="admin-layout">
@@ -330,6 +373,88 @@ const Reports = () => {
                       <td>{formatDate(post.created_at)}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {/* Recent Reports Section */}
+          <div className="section-container">
+            <h2>Recent Reports ({reports.length})</h2>
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Target</th>
+                    <th>Reporter</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reports.map((report) => (
+                    <tr key={report.id}>
+                      <td>#{report.id}</td>
+                      <td>
+                        <span className={`badge ${report.report_type === 'post' ? 'posts' : 'user'}-badge`}>
+                          {report.report_type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="user-cell">
+                          <div className="user-avatar">
+                            <MdPerson />
+                          </div>
+                          <span>
+                            {report.report_type === 'post' 
+                              ? report.post_author_name || 'Unknown'
+                              : report.target_user_name || 'Unknown'
+                            }
+                          </span>
+                          {report.report_type === 'user' && report.target_user_id && (
+                            <Link to={`/admin/users/${report.target_user_id}`} className="view-btn small">View</Link>
+                          )}
+                          {report.report_type === 'post' && report.post_author_id && (
+                            <Link to={`/profile/${report.post_author_id}`} className="view-btn small">View Post</Link>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span>{report.reporter_name}</span>
+                      </td>
+                      <td className="content-cell" title={report.reason}>
+                        {report.reason?.substring(0, 100)}{report.reason?.length > 100 ? '...' : ''}
+                      </td>
+                      <td>
+                        <span className={`badge status-${report.status || 'pending'}`}>
+                          {report.status || 'pending'}
+                        </span>
+                      </td>
+                      <td>{formatDate(report.created_at)}</td>
+                      <td>
+                        {report.report_type === 'post' && (
+                          <button className="action-btn-small restrict" onClick={() => handleRestrictPost(report.post_id, report.reason)}>
+                            Restrict
+                          </button>
+                        )}
+                        {report.report_type === 'user' && (
+                          <button className="action-btn-small ban" onClick={() => handleBanUser(report.target_user_id, report.reason)}>
+                            Ban User
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {reports.length === 0 && (
+                    <tr>
+                      <td colSpan="8" className="no-data">
+                        No reports found
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

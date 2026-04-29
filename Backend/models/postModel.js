@@ -2,7 +2,7 @@ const pool = require("../db/connection");
 
 exports.createPostTable = async () => {
   try {
-    await pool.execute(`
+await pool.execute(`
       CREATE TABLE IF NOT EXISTS posts (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -11,11 +11,15 @@ exports.createPostTable = async () => {
         likes_count INT DEFAULT 0,
         comments_count INT DEFAULT 0,
         shares_count INT DEFAULT 0,
+        isRestricted TINYINT(1) DEFAULT 0,
+        restrictedBy INT NULL,
+        restrictReason TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         INDEX idx_user_id (user_id),
-        INDEX idx_created_at (created_at)
+        INDEX idx_created_at (created_at),
+        INDEX idx_isRestricted (isRestricted)
       )
     `);
     console.log("Posts table created or already exists");

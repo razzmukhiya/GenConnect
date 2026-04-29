@@ -194,6 +194,68 @@
   border-collapse: collapse;
 }
 
+.status-pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-reviewed {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-dismissed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.post-badge {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.user-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.action-btn-small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  margin: 0 0.25rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.action-btn-small.restrict {
+  background: #ffc107;
+  color: #212529;
+}
+
+.action-btn-small.ban {
+  background: #dc3545;
+  color: white;
+}
+
+.action-btn-small:hover {
+  opacity: 0.8;
+}
+
+.view-btn.small {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.75rem;
+}
+
+.no-data {
+  text-align: center;
+  padding: 2rem;
+  color: #7f8c8d;
+  font-style: italic;
+}
+
 .data-table th {
   text-align: left;
   padding: 1rem;

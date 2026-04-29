@@ -1,10 +1,9 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../db/connection')
+const db = require('../db/connection');
 const reportModel = require('../models/reportModel');
 
-// Admin Register (Public - no auth required) - NEW
-exports.register = async (req, res) => {
+const register = async (req, res) => {
   try {
     const { fullName, email, password } = req.body;
 
@@ -36,8 +35,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// Existing functions unchanged
-exports.login = async (req, res) => {
+const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -72,7 +70,7 @@ exports.login = async (req, res) => {
   }
 };
 
-exports.getDashboardStats = async (req, res) => {
+const getDashboardStats = async (req, res) => {
   try {
     const [usersResult] = await db.execute('SELECT COUNT(*) as totalUsers FROM users');
     const [activeUsersResult] = await db.execute('SELECT COUNT(*) as activeUsers FROM users WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)');
@@ -101,8 +99,7 @@ exports.getDashboardStats = async (req, res) => {
   }
 };
 
-// Get All Users
-exports.getAllUsers = async (req, res) => {
+const getAllUsers = async (req, res) => {
   try {
     const [users] = await db.execute(`SELECT id, fullName, email, number, gender, createdAt FROM users ORDER BY createdAt DESC`);
     res.json({ success: true, users });
@@ -112,8 +109,7 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// Delete User
-exports.deleteUser = async (req, res) => {
+const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
     const [result] = await db.execute('DELETE FROM users WHERE id = ?', [id]);
@@ -127,8 +123,17 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
-// Get All Admins
-exports.getAdmin = async (req, res) => {
+const getAllAdmins = async (req, res) => {
+  try {
+    const [admins] = await db.execute(`SELECT id, fullName, email, role, isActive, lastLogin, createdAt FROM admins ORDER BY createdAt DESC`);
+    res.json({ success: true, admins });
+  } catch (error) {
+    console.error('Get all admins error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const getAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const [adminRows] = await db.execute(`SELECT id, fullName, email, role, isActive FROM admins WHERE id = ?`, [id]);
@@ -142,18 +147,7 @@ exports.getAdmin = async (req, res) => {
   }
 };
 
-exports.getAllAdmins = async (req, res) => {
-  try {
-    const [admins] = await db.execute(`SELECT id, fullName, email, role, isActive, lastLogin, createdAt FROM admins ORDER BY createdAt DESC`);
-    res.json({ success: true, admins });
-  } catch (error) {
-    console.error('Get all admins error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-// Create New Admin (Super Admin only - protected)
-exports.createAdmin = async (req, res) => {
+const createAdmin = async (req, res) => {
   try {
     const { fullName, email, password, role } = req.body;
 
@@ -176,13 +170,11 @@ exports.createAdmin = async (req, res) => {
   }
 };
 
-// Update Admin Status
-exports.updateAdmin = async (req, res) => {
+const updateAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const { fullName, email, password, role, isActive } = req.body;
     
-    // Build update query with only provided fields
     const updates = [];
     const values = [];
     
@@ -228,8 +220,7 @@ exports.updateAdmin = async (req, res) => {
   }
 };
 
-// Delete Admin
-exports.deleteAdmin = async (req, res) => {
+const deleteAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const [result] = await db.execute('DELETE FROM admins WHERE id = ?', [id]);
@@ -243,8 +234,7 @@ exports.deleteAdmin = async (req, res) => {
   }
 };
 
-// Get Admin Profile
-exports.getAdminProfile = async (req, res) => {
+const getAdminProfile = async (req, res) => {
   try {
     const adminId = req.admin.id;
     const [adminRows] = await db.execute(`SELECT id, fullName, email, role, avatar, isActive, lastLogin, createdAt FROM admins WHERE id = ?`, [adminId]);
@@ -258,8 +248,7 @@ exports.getAdminProfile = async (req, res) => {
   }
 };
 
-// Update Admin Profile
-exports.updateAdminProfile = async (req, res) => {
+const updateAdminProfile = async (req, res) => {
   try {
     const adminId = req.admin.id;
     const { fullName, email, avatar } = req.body;
@@ -274,8 +263,7 @@ exports.updateAdminProfile = async (req, res) => {
   }
 };
 
-// Change Admin Password
-exports.changePassword = async (req, res) => {
+const changePassword = async (req, res) => {
   try {
     const adminId = req.admin.id;
     const { currentPassword, newPassword } = req.body;
@@ -303,8 +291,7 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-// Get Reports Data
-exports.getReportsData = async (req, res) => {
+const getReportsData = async (req, res) => {
   try {
     const [totalUsersResult] = await db.execute('SELECT COUNT(*) as count FROM users');
     const [newUsersWeekResult] = await db.execute('SELECT COUNT(*) as count FROM users WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)');
@@ -325,7 +312,28 @@ exports.getReportsData = async (req, res) => {
 
     const [postGrowth] = await db.execute(`SELECT DATE_FORMAT(created_at, '%Y-%m') as month, COUNT(*) as count FROM posts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH) GROUP BY DATE_FORMAT(created_at, '%Y-%m') ORDER BY month ASC`);
 
-    // Add reports data\n    const reports = await reportModel.getAllReports();\n    const [pendingReportsResult] = await db.execute(\"SELECT COUNT(*) as pendingCount FROM post_reports WHERE status = 'pending'\");\n\n    const reportsData = {\n      statistics: {\n        totalUsers: totalUsersResult[0].count,\n        newUsersThisWeek: newUsersWeekResult[0].count,\n        newUsersThisMonth: newUsersMonthResult[0].count,\n        totalPosts: totalPostsResult[0].count,\n        postsThisWeek: postsWeekResult[0].count,\n        totalLikes: totalLikesResult[0].count,\n        totalComments: totalCommentsResult[0].count,\n        totalMessages: totalMessagesResult[0].count,\n        totalReports: reports.length,\n        pendingReports: pendingReportsResult[0].pendingCount\n      },\n      reports: reports.slice(0, 10), // Recent 10 reports\n      topUsers,\n      topPosts,\n      recentPosts,\n      userGrowth,\n      postGrowth\n    };
+    const reports = await reportModel.getAllReports();
+    const [pendingReportsResult] = await db.execute("SELECT COUNT(*) as pendingCount FROM post_reports WHERE status = 'pending'");
+
+    const reportsData = {
+      statistics: {
+        totalUsers: totalUsersResult[0]?.count || 0,
+        newUsersThisWeek: newUsersWeekResult[0]?.count || 0,
+        newUsersThisMonth: newUsersMonthResult[0]?.count || 0,
+        totalPosts: totalPostsResult[0]?.count || 0,
+        postsThisWeek: postsWeekResult[0]?.count || 0,
+        totalLikes: totalLikesResult[0]?.count || 0,
+        totalComments: totalCommentsResult[0]?.count || 0,
+        totalMessages: totalMessagesResult[0]?.count || 0,
+        pendingReports: pendingReportsResult[0]?.pendingCount || 0
+      },
+      topUsers: topUsers || [],
+      topPosts: topPosts || [],
+      recentPosts: recentPosts || [],
+      userGrowth: userGrowth || [],
+      postGrowth: postGrowth || [],
+      reports: reports || []
+    };
 
     res.json({ success: true, data: reportsData });
   } catch (error) {
@@ -334,3 +342,65 @@ exports.getReportsData = async (req, res) => {
   }
 };
 
+const restrictPost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { reason } = req.body;
+    const adminId = req.admin.id;
+
+    const [result] = await db.execute(
+      'UPDATE posts SET isRestricted = 1, restrictedBy = ?, restrictReason = ? WHERE id = ?',
+      [adminId, reason || null, postId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    res.json({ success: true, message: 'Post restricted successfully' });
+  } catch (error) {
+    console.error('Restrict post error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const banUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.admin.id;
+
+    const [result] = await db.execute(
+      'UPDATE users SET isBanned = 1, bannedBy = ?, banReason = ?, bannedAt = CURRENT_TIMESTAMP WHERE id = ?',
+      [adminId, reason || null, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.json({ success: true, message: 'User banned successfully' });
+  } catch (error) {
+    console.error('Ban user error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  getDashboardStats,
+  getAllUsers,
+  deleteUser,
+  getAllAdmins,
+  getAdmin,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+  getAdminProfile,
+  updateAdminProfile,
+  changePassword,
+  getReportsData,
+  restrictPost,
+  banUser
+};

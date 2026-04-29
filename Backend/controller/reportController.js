@@ -9,7 +9,7 @@ exports.createReport = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Post ID, reporter ID, and reason are required' });
     }
 
-    const report = await reportModel.createReport(parseInt(postId), parseInt(reporterId), reason.trim());
+    const report = await reportModel.createPostReport(parseInt(postId), parseInt(reporterId), reason.trim());
 
     res.status(201).json({ 
       success: true, 
