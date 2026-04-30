@@ -17,29 +17,50 @@ exports.createUser = async (fullName, email, number, dateOfBirth, gender, passwo
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create users table if not exists (plain text - no keys)
+// Create users table if not exists (plain text - no keys)
 await pool.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        fullName VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        number VARCHAR(20) NOT NULL,
-        dateOfBirth DATE NOT NULL,
-        gender ENUM('male', 'female', 'other') NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        coverPhoto VARCHAR(500),
-        avatar VARCHAR(500),
-        posts INT DEFAULT 0,
-        followers INT DEFAULT 0,
-        following INT DEFAULT 0,
-        isBanned TINYINT(1) DEFAULT 0,
-        bannedBy INT NULL,
-        banReason TEXT NULL,
-        bannedAt TIMESTAMP NULL,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_isBanned (isBanned)
-      )
-    `);
+  CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    fullName VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    number VARCHAR(20) NOT NULL,
+    dateOfBirth DATE NOT NULL,
+    gender ENUM('male', 'female', 'other') NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    public_key TEXT NULL,
+    public_key_fingerprint VARCHAR(64) NULL,
+    coverPhoto VARCHAR(500),
+    avatar VARCHAR(500),
+    posts INT DEFAULT 0,
+    followers INT DEFAULT 0,
+    following INT DEFAULT 0,
+    isBanned TINYINT(1) DEFAULT 0,
+    bannedBy INT NULL,
+    banReason TEXT NULL,
+    bannedAt TIMESTAMP NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_isBanned (isBanned)
+  )
+`);
+
+// Add public_key and public_key_fingerprint columns if they don't exist (for existing tables)
+    // First check if columns exist to avoid duplicate errors
+    try {
+      const [cols] = await pool.execute(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'public_key'`, [process.env.DB_DATABASE || 'genconnect']);
+      if (cols.length === 0) {
+        await pool.execute(`ALTER TABLE users ADD COLUMN public_key TEXT NULL`);
+      }
+    } catch (e) {
+      // Ignore if table doesn't exist or other error
+    }
+    try {
+      const [cols] = await pool.execute(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'public_key_fingerprint'`, [process.env.DB_DATABASE || 'genconnect']);
+      if (cols.length === 0) {
+        await pool.execute(`ALTER TABLE users ADD COLUMN public_key_fingerprint VARCHAR(64) NULL`);
+      }
+    } catch (e) {
+      // Ignore if table doesn't exist or other error
+    }
 
     // Insert user data (plain text - no keys)
     const [result] = await pool.execute(

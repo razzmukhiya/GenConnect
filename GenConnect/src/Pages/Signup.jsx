@@ -29,20 +29,48 @@ const Signup = () => {
     e.preventDefault();
     setLoading(true);
 
-    try {
+try {
       const response = await axios.post(`${server}/signup`, formData);
+      console.log('Signup response:', response.data);
       const token = response.data.token;
       const userId = response.data.userId;
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify({ id: userId }));
-      // Gen E2EE keys if not exist (client-side)
-      if (!localStorage.getItem('localPrivateKey')) {
-        const keys = await generateKeyPair();
-        localStorage.setItem('localPrivateKey', keys.privateKey);
-        await axios.put(`${server}/users/${userId}/keys`, { publicKey: keys.publicKey }, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        toast.info('E2EE keys generated client-side');
+      
+// Store private key from server response (server-side key generation)
+      if (response.data.privateKey) {
+        console.log('Storing server-generated private key');
+        localStorage.setItem('localPrivateKey', response.data.privateKey);
+        toast.info('E2EE keys generated and stored');
+      } else if (!localStorage.getItem('localPrivateKey')) {
+        // Fallback: try client-side key generation
+        console.log('Trying client-side key generation...');
+        try {
+          const keys = await generateKeyPair();
+          console.log('Keys generated, publicKey length:', keys.publicKey.length);
+          localStorage.setItem('localPrivateKey', keys.privateKey);
+          
+          // Try to set the public key on the server
+          console.log('Setting public key for user:', userId, 'with token:', token ? 'present' : 'missing');
+          const keyResponse = await axios.put(`${server}/users/${userId}/keys`, { publicKey: keys.publicKey }, {
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          console.log('Public key set response:', keyResponse.data);
+          toast.info('E2EE keys generated and stored');
+        } catch (keyError) {
+          console.error('Key generation/set error:', keyError);
+          if (keyError.response) {
+            console.error('Error response:', keyError.response.data);
+          } else if (keyError.request) {
+            console.error('No response received:', keyError.request);
+          }
+          toast.warning('Signup successful but key storage failed');
+        }
+      } else {
+        console.log('Local private key already exists, skipping key generation');
       }
       toast.success('Signup successful! Please log in.');
       // Reset form
@@ -56,6 +84,7 @@ const Signup = () => {
       });
 
     } catch (error) {
+      console.error('Signup error:', error);
       if (error.response) {
         toast.error(error.response.data.message || 'Signup failed');
       } else {

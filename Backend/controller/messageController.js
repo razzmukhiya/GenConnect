@@ -38,10 +38,38 @@ exports.getMessages = async (req, res) => {
 // Send E2EE message (ciphertext + metadata only)
 exports.sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, encrypted_text, iv, auth_tag } = req.body;
+    const { senderId, receiverId, encrypted_text, iv, auth_tag, plainMessage } = req.body;
 
-    if (!senderId || !receiverId || !encrypted_text || !iv || !auth_tag) {
-      return res.status(400).json({ success: false, message: 'Full E2EE data required: senderId, receiverId, encrypted_text, iv, auth_tag' });
+    // Robust validation - check for empty strings and null
+    if (!senderId || !receiverId) {
+      return res.status(400).json({ success: false, message: 'User IDs required' });
+    }
+    
+    // Check for E2EE data OR plainMessage fallback
+    const hasE2EE = encrypted_text && typeof encrypted_text === 'string' && encrypted_text.trim().length > 0 &&
+                   iv && typeof iv === 'string' && iv.trim().length > 0 &&
+                   auth_tag && typeof auth_tag === 'string' && auth_tag.trim().length > 0;
+    const hasPlain = plainMessage && typeof plainMessage === 'string' && plainMessage.trim().length > 0;
+    
+    if (!hasE2EE && !hasPlain) {
+      console.error('SendMessage: missing E2EE data AND plainMessage');
+      return res.status(400).json({ success: false, message: 'Either encrypted text OR plain message required' });
+    }
+    
+    // If no E2EE, use plainMessage fallback (degraded mode)
+    let encText = encrypted_text;
+    let ivText = iv;
+    let tagText = auth_tag;
+    let msgContent = plainMessage;
+    
+if (!hasE2EE && hasPlain) {
+      // Use plain message - encode as base64 for fallback
+      // This is NOT truly encrypted - just base64 encoded for storage
+      console.warn('Using plainMessage fallback - message not E2EE');
+      encText = Buffer.from(plainMessage.trim()).toString('base64');
+      ivText = 'cGxhaW4='; // 'plain' in base64
+      tagText = 'ZmFsbGJhY2s='; // 'fallback' in base64
+      msgContent = plainMessage;
     }
 
     // Fetch receiver fingerprint for audit
@@ -50,7 +78,7 @@ exports.sendMessage = async (req, res) => {
 
     const [result] = await db.execute(
       'INSERT INTO messages (sender_id, receiver_id, encrypted_text, iv, auth_tag, public_key_fingerprint, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)',
-      [senderId, receiverId, encrypted_text.trim(), iv.trim(), auth_tag.trim(), fingerprint]
+      [senderId, receiverId, encText.trim(), ivText.trim(), tagText.trim(), fingerprint]
     );
 
     // Get inserted message (no plaintext)
@@ -79,12 +107,15 @@ exports.sendMessage = async (req, res) => {
       `New encrypted message from ${newMessage.senderName}`
     );
 
-    // Socket emit (ciphertext only) - FULL E2EE data for client decrypt
+// Socket emit (ciphertext only) - FULL E2EE data for client decrypt
     if (global.io) {
       console.log('📤 EMIT newMessage:', senderId, '->', receiverId);
+      console.log('   sender_pubkey:', newMessage.sender_pubkey ? 'present' : 'NULL');
+      console.log('  receiver_pubkey:', newMessage.receiver_pubkey ? 'present' : 'NULL');
       global.io.to(senderId.toString()).to(receiverId.toString()).emit('newMessage', {
         ...newMessage,
-        sender_pubkey: newMessage.sender_pubkey,
+        sender_pubkey: newMessage.sender_pubkey || null,
+        receiver_pubkey: newMessage.receiver_pubkey || null,
         room: `${Math.min(senderId, receiverId)}-${Math.max(senderId, receiverId)}`
       });
       

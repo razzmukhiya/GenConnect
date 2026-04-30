@@ -14,8 +14,25 @@ const publicAdminRoutes = require("./routes/publicAdminRoutes");
 const app = express();
 
 db.getConnection()
-    .then((connection) => {
+    .then(async (connection) => {
         console.log('Database connection verified');
+        
+        // Migration: Add public_key columns if they don't exist
+        try {
+            await connection.query(`ALTER TABLE users ADD COLUMN public_key TEXT NULL`);
+            console.log('Migration: Added public_key column');
+        } catch (e) {
+            // Column might already exist, which is fine
+            console.log('Migration check: public_key column:', e.message);
+        }
+        try {
+            await connection.query(`ALTER TABLE users ADD COLUMN public_key_fingerprint VARCHAR(64) NULL`);
+            console.log('Migration: Added public_key_fingerprint column');
+        } catch (e) {
+            // Column might already exist, which is fine
+            console.log('Migration check: public_key_fingerprint column:', e.message);
+        }
+        
         connection.release();
     })
     .catch((err) => {

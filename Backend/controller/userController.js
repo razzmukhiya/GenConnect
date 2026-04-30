@@ -1,13 +1,25 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../db/connection');
 const userModel = require('../models/userModel');
+
+// Generate EC key pair server-side
+function generateServerKeyPair() {
+  const ecdh = crypto.createECDH('prime256v1');
+  ecdh.generateKeys();
+  
+  const privateKey = ecdh.getPrivateKey('base64');
+  const publicKey = ecdh.getPublicKey('base64');
+  
+  return { privateKey, publicKey };
+}
 
 exports.register = async (req, res) => {
   try {
     const { fullName, email, number, dateOfBirth, gender, password } = req.body;
 
-    
+    // Create the user
     const userResult = await userModel.createUser(
       fullName,
       email,
@@ -17,11 +29,29 @@ exports.register = async (req, res) => {
       password
     );
 
-    
+    // Create profile
     await userModel.createProfile(userResult.id);
 
+    // Generate server-side key pair for E2EE
+    const { privateKey, publicKey } = generateServerKeyPair();
+    const fingerprint = crypto.createHash('sha256').update(publicKey).digest('hex').toUpperCase();
+    
+    // Store the public key and fingerprint in the database
+    await db.execute(
+      'UPDATE users SET public_key = ?, public_key_fingerprint = ? WHERE id = ?',
+      [publicKey, fingerprint, userResult.id]
+    );
+    console.log(`Generated and stored public key for user ${userResult.id}, fingerprint: ${fingerprint}`);
+
     const token = jwt.sign({ id: userResult.id, email }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
-    res.status(201).json({ success: true, message: 'User registered successfully', userId: userResult.id, token });
+    res.status(201).json({ 
+      success: true, 
+      message: 'User registered successfully', 
+      userId: userResult.id, 
+      token,
+      // Include the private key in the response (should be stored securely by the client)
+      privateKey: privateKey
+    });
 
   } catch (error) {
     console.error('Registration error:', error);
@@ -50,9 +80,26 @@ exports.login = async (req, res) => {
     // Generate JWT token
     const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
 
+    // Check if user has a public key, if not generate one (for legacy users)
+    let privateKey = null;
+    if (!user.public_key) {
+      console.log('User has no public key, generating new key pair...');
+      const { privateKey: privKey, publicKey } = generateServerKeyPair();
+      const fingerprint = crypto.createHash('sha256').update(publicKey).digest('hex').toUpperCase();
+      
+      // Store the public key and fingerprint in the database
+      await db.execute(
+        'UPDATE users SET public_key = ?, public_key_fingerprint = ? WHERE id = ?',
+        [publicKey, fingerprint, user.id]
+      );
+      console.log(`Generated and stored public key for existing user ${user.id}, fingerprint: ${fingerprint}`);
+      
+      privateKey = privKey;
+    }
+
     // Return user data (excluding password), private key, and token
     const { password: _, ...userData } = user;
-    res.json({ success: true, message: 'Login successful', user: userData, token });
+    res.json({ success: true, message: 'Login successful', user: userData, token, privateKey });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
@@ -493,19 +540,34 @@ exports.setPublicKey = async (req, res) => {
   try {
     const { id } = req.params;
     const { publicKey } = req.body;
+    
+    console.log('=== setPublicKey called ===');
+    console.log('User ID:', id);
+    console.log('PublicKey present:', !!publicKey);
+    console.log('PublicKey length:', publicKey ? publicKey.length : 0);
+    console.log('Full body:', req.body);
+    
     if (!publicKey) {
+      console.error('ERROR: Public key missing in request body');
       return res.status(400).json({ success: false, message: 'Public key required' });
     }
+    
     const crypto = require('crypto');
     const fingerprint = crypto.createHash('sha256').update(publicKey).digest('hex').toUpperCase();
-    const db = require('../db/connection');
+    console.log('Fingerprint:', fingerprint);
+    
     const [result] = await db.execute('UPDATE users SET public_key = ?, public_key_fingerprint = ? WHERE id = ?', [publicKey, fingerprint, id]);
+    console.log('Update result:', result);
+    
     if (result.affectedRows === 0) {
+      console.error('ERROR: User not found, id:', id);
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+    
+    console.log('SUCCESS: Public key set for user', id);
     res.json({ success: true, message: 'Public key & fingerprint updated successfully', fingerprint });
   } catch (error) {
-    console.error('Set public key error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error('ERROR in setPublicKey:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

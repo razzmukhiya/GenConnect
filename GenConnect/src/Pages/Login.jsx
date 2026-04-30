@@ -21,25 +21,47 @@ const Login = () => {
     });
   };
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const response = await axios.post(`${server}/login`, formData);
+      console.log('Login response:', response.data);
       toast.success('Login successful!');
-      localStorage.setItem('token', response.data.token);
+localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
-      // Gen E2EE keys if not exist (client-side)
-      if (!localStorage.getItem('localPrivateKey')) {
-        const keys = await generateKeyPair();
-        localStorage.setItem('localPrivateKey', keys.privateKey);
-        await axios.put(`${server}/users/${response.data.user.id}/keys`, { publicKey: keys.publicKey }, {
-          headers: { Authorization: `Bearer ${response.data.token}` }
-        });
-        toast.info('E2EE keys generated client-side');
+      
+      // Store private key from server response (server-side key generation for legacy users)
+      if (response.data.privateKey) {
+        console.log('Storing server-generated private key');
+        localStorage.setItem('localPrivateKey', response.data.privateKey);
+        toast.info('E2EE keys generated and stored');
+      } else if (!localStorage.getItem('localPrivateKey')) {
+        // Fallback: try client-side key generation
+        console.log('Trying client-side key generation...');
+        try {
+          const keys = await generateKeyPair();
+          console.log('Keys generated, publicKey length:', keys.publicKey.length);
+          localStorage.setItem('localPrivateKey', keys.privateKey);
+          
+          // Try to set the public key on the server
+          console.log('Setting public key for user:', response.data.user.id);
+          const keyResponse = await axios.put(`${server}/users/${response.data.user.id}/keys`, { publicKey: keys.publicKey }, {
+            headers: { Authorization: `Bearer ${response.data.token}` }
+          });
+          console.log('Public key set response:', keyResponse.data);
+          toast.info('E2EE keys generated and stored');
+        } catch (keyError) {
+          console.error('Failed to set public key:', keyError);
+          if (keyError.response) {
+            console.error('Error response:', keyError.response.data);
+          }
+          toast.warning('Login successful but key storage failed');
+        }
       }
       window.location.href = '/';
 
     } catch (error) {
+      console.error('Login error:', error);
       if (error.response) {
         toast.error(error.response.data.message || 'Login failed');
       } else {
