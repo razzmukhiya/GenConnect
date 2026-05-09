@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AdminNavbar from '../../Components/AdminNavbar';
+// import AdminNavbar from '../../Components/AdminNavbar';
 import AdminSidebar from '../../Components/AdminSidebar';
 import {
   MdPeople, 
@@ -69,7 +69,7 @@ const AdminDashboard = () => {
   if (loading) {
     return (
       <>
-        <AdminNavbar />
+        {/* <AdminNavbar /> */}
         <AdminSidebar />
         <div className="loading-container">
           <div className="loading-spinner"></div>
@@ -82,7 +82,7 @@ const AdminDashboard = () => {
   if (error) {
     return (
       <>
-        <AdminNavbar />
+        {/* <AdminNavbar /> */}
         <AdminSidebar />
         <div className="error-container">
           <p className="error-text">{error}</p>
@@ -98,7 +98,7 @@ const AdminDashboard = () => {
 
   return (
     <>
-      <AdminNavbar />
+      {/* <AdminNavbar /> */}
       <AdminSidebar />
       <div className="admin-main-content">
         <div className="admin-dashboard">

@@ -590,38 +590,127 @@ exports.searchUsers = async (currentUserId, searchQuery) => {
 };
 
 
-// Get Suggested Users (People You May Know) Function
+// Get Suggested Users (People You May Know) Function (Mutual Friends)
 exports.getSuggestedUsers = async (userId, limit = 10) => {
   try {
-    // Get all users except the current user
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.fullName, u.email, u.number, p.avatar 
-       FROM users u 
-       LEFT JOIN profiles p ON u.id = p.user_id 
-       WHERE u.id != ? 
-       ORDER BY u.createdAt DESC 
-       LIMIT 50`,
+    // Ensure friends table exists
+    await exports.createFriendsTable();
+
+    // Candidates are users who are not already friends (status == none) and not self.
+    // Score candidates by number of mutual friends.
+
+    // Step 1: get my friends ids
+    const [myFriendsRows] = await pool.execute(
+      `SELECT friend_id FROM friends WHERE user_id = ?`,
       [userId]
     );
 
-    // Filter out users who are already friends or have pending requests
-    const suggestedUsers = [];
-    for (const user of rows) {
-      const status = await exports.getFriendshipStatus(userId, user.id);
-      if (status === 'none') {
-        suggestedUsers.push(user);
+    const myFriendIds = myFriendsRows.map(r => r.friend_id);
+
+    if (myFriendIds.length === 0) {
+      // Fallback: if no friends, return recent users (excluding self and current friendship statuses)
+      const [rows] = await pool.execute(
+        `SELECT u.id, u.fullName, u.email, u.number, p.avatar
+         FROM users u
+         LEFT JOIN profiles p ON u.id = p.user_id
+         WHERE u.id != ?
+         ORDER BY u.createdAt DESC
+         LIMIT ?`,
+        [userId, limit]
+      );
+
+      const suggestedUsers = [];
+      for (const user of rows) {
+        const status = await exports.getFriendshipStatus(userId, user.id);
+        if (status === 'none') {
+          suggestedUsers.push(user);
+        }
+        if (suggestedUsers.length >= limit) break;
       }
-      if (suggestedUsers.length >= limit) {
-        break;
+
+      return suggestedUsers;
+    }
+
+    // Step 2: compute mutual counts for each candidate
+    // mutual = count of myFriends who are also friends with candidate
+    // friends table is directional (user_id, friend_id). We insert both directions on acceptance,
+    // so mutual friend relationship is represented in both directions.
+    const placeholders = myFriendIds.map(() => '?').join(',');
+
+    const [candidates] = await pool.execute(
+      `SELECT 
+          u.id,
+          u.fullName,
+          u.email,
+          u.number,
+          p.avatar,
+          COUNT(DISTINCT mf.friend_id) AS mutualCount
+        FROM users u
+        LEFT JOIN profiles p ON u.id = p.user_id
+        INNER JOIN friends mf ON mf.friend_id = u.id AND mf.user_id IN (${placeholders})
+        WHERE u.id != ?
+        GROUP BY u.id, u.fullName, u.email, u.number, p.avatar
+        HAVING mutualCount > 0
+        ORDER BY mutualCount DESC, u.createdAt DESC
+        LIMIT 200`,
+      [...myFriendIds, userId]
+    );
+
+    // Step 3: filter mutual candidates by friendship status (exclude already-friends / pending)
+    const suggestedUsers = [];
+    for (const cand of candidates) {
+      const status = await exports.getFriendshipStatus(userId, cand.id);
+      if (status === 'none') {
+        suggestedUsers.push({
+          ...cand,
+          mutualCount: cand.mutualCount ? Number(cand.mutualCount) : 0
+        });
+      }
+      if (suggestedUsers.length >= limit) break;
+    }
+
+    // Step 4 (always-fill): if we still need more suggestions, add random/non-friend users with mutualCount = 0
+    if (suggestedUsers.length < limit) {
+      const remaining = limit - suggestedUsers.length;
+
+      // Exclude self and users we already suggested
+      const alreadySuggestedIds = suggestedUsers.map(u => u.id);
+
+      // Build a safe WHERE NOT IN clause
+      const excludeIds = [userId, ...alreadySuggestedIds];
+      const excludePlaceholders = excludeIds.map(() => '?').join(',');
+
+      // Fetch a bigger pool, then filter by friendship status in JS
+      const [fallbackRows] = await pool.execute(
+        `SELECT u.id, u.fullName, u.email, u.number, p.avatar
+         FROM users u
+         LEFT JOIN profiles p ON u.id = p.user_id
+         WHERE u.id NOT IN (${excludePlaceholders})
+         ORDER BY u.createdAt DESC
+         LIMIT 200`,
+        excludeIds
+      );
+
+      for (const user of fallbackRows) {
+        const status = await exports.getFriendshipStatus(userId, user.id);
+        if (status === 'none') {
+          suggestedUsers.push({
+            ...user,
+            mutualCount: 0
+          });
+        }
+        if (suggestedUsers.length >= limit) break;
       }
     }
 
     return suggestedUsers;
+
   } catch (err) {
     console.error("Get suggested users error:", err);
     throw new Error(`Get suggested users failed: ${err.message}`);
   }
 };
+
 
 exports.getPublicKeyById = async (id) => {
   try {

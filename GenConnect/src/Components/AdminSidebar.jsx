@@ -26,7 +26,7 @@ const AdminSidebar = () => {
     { name: 'Admins', icon: <MdPeople />, path: '/admin/admins' },
     { name: 'Users', path: '/admin/users', icon: <MdPeople /> },
     { name: 'Reports', path: '/admin/reports', icon: <MdAssessment /> },
-    { name: 'Supports', path: '/admin/supports', icon: <MdSupportAgent /> },
+    // { name: 'Supports', path: '/admin/supports', icon: <MdSupportAgent /> },
   ];
 
 

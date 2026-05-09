@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import AdminNavbar from '../../Components/AdminNavbar';
+// import AdminNavbar from '../../Components/AdminNavbar';
 import AdminSidebar from '../../Components/AdminSidebar';
 import {
   MdPeople,
@@ -116,7 +116,7 @@ const Reports = () => {
       <div className="admin-layout">
         <AdminSidebar />
         <div className="admin-main">
-          <AdminNavbar />
+          {/* <AdminNavbar /> */}
           <div className="reports-container">
             <div className="loading-spinner">Loading reports...</div>
           </div>
@@ -130,7 +130,7 @@ const Reports = () => {
       <div className="admin-layout">
         <AdminSidebar />
         <div className="admin-main">
-          <AdminNavbar />
+          {/* <AdminNavbar /> */}
           <div className="reports-container">
             <div className="error-message">Error: {error}</div>
           </div>
@@ -144,7 +144,7 @@ const Reports = () => {
       <div className="admin-layout">
         <AdminSidebar />
         <div className="admin-main">
-          <AdminNavbar />
+          {/* <AdminNavbar /> */}
           <div className="reports-container">
             <div className="error-message">No data available</div>
           </div>
@@ -159,7 +159,7 @@ const Reports = () => {
     <div className="admin-layout">
       <AdminSidebar />
       <div className="admin-main">
-        <AdminNavbar />
+        {/* <AdminNavbar /> */}
         <div className="reports-container">
           <div className="reports-header">
             <h1>Reports & Analytics</h1>

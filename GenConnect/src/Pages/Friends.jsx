@@ -386,7 +386,7 @@ const Friends = () => {
         </div>
 
 
-        {/* People You May Know Section */}
+{/* People You May Know Section */}
         <div className="friends-section">
           <h2>People You May Know ({peopleYouMayKnow.length})</h2>
           {peopleYouMayKnow.length === 0 ? (
@@ -395,7 +395,7 @@ const Friends = () => {
             <div className="user-cards">
               {peopleYouMayKnow.map(user => (
                 <div 
-                  key={user.id} 
+                  key={user.id}
                   className="user-card"
                   onClick={() => handleViewProfile(user.id)}
                   style={{ cursor: 'pointer' }}
@@ -404,9 +404,14 @@ const Friends = () => {
                     {user.fullName ? user.fullName.charAt(0) : '?'}
                   </div>
                   <div className="user-name">{user.fullName || 'Unknown User'}</div>
+                  {typeof user.mutualCount === 'number' && user.mutualCount > 0 && (
+                    <div className="user-info" style={{ marginBottom: '1.2rem' }}>
+                      ✅ {user.mutualCount} mutual friend{user.mutualCount === 1 ? '' : 's'}
+                    </div>
+                  )}
                   <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                     <button 
-                      className="btn btn-add" 
+                      className="btn btn-add"
                       onClick={() => handleAddFriend(user.id)}
                     >
                       Add Friend

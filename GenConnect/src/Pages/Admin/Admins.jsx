@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AdminNavbar from '../../Components/AdminNavbar';
+// import AdminNavbar from '../../Components/AdminNavbar';
 import AdminSidebar from '../../Components/AdminSidebar';
 import { MdAdd, MdEdit, MdDelete, MdClose } from 'react-icons/md';
 import '../../Styles/Admins.css';
@@ -214,7 +214,7 @@ const Admins = () => {
 
   return (
     <div>
-      <AdminNavbar />
+      {/* <AdminNavbar /> */}
       <AdminSidebar />
 
       <div className="admin-layout">

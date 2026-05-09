@@ -10,17 +10,15 @@ class NotificationModel {
     return result.insertId;
   }
 
-  static async getNotificationsByUserId(userId, limit = 50, offset = 0) {
+static async getNotificationsByUserId(userId, limit = 50, offset = 0) {
     const query = `
       SELECT n.*, 
              u.fullName as fromUserName,
              u.avatar as fromUserAvatar,
-             p.content as postContent,
-             m.message as messageContent
+             p.content as postContent
       FROM notifications n
       LEFT JOIN users u ON n.from_user_id = u.id
       LEFT JOIN posts p ON n.post_id = p.id  
-      LEFT JOIN messages m ON n.message_id = m.id
       WHERE n.user_id = ?
       ORDER BY n.created_at DESC
       LIMIT ? OFFSET ?

@@ -164,30 +164,103 @@ const tryLoadKey = async () => {
       }
     }
 
-    if (privKey &&
-        messageData.encrypted_text && messageData.iv && messageData.auth_tag &&
-        decryptPubkey && decryptPubkey !== 'null' && decryptPubkey !== null) {
+    if (
+      privKey &&
+      messageData.iv &&
+      (
+        messageData.ciphertext_b64 ||
+        // new format: encrypted_text contains ciphertext||tag, auth_tag is ''
+        (messageData.encrypted_text && messageData.encrypted_text !== null) ||
+        // legacy format
+        (messageData.encrypted_text && messageData.auth_tag)
+      )
+    ) {
+
+      // Best-effort debug (lengths only)
+      console.log('[E2EE] decrypt attempt', {
+        msgId: messageData.id,
+        isOwn: isOwnMessage,
+        usedPubkey: decryptPubkey ? 'present' : 'NULL',
+        pubkeyLen: typeof decryptPubkey === 'string' ? decryptPubkey.length : null,
+        ctLen: typeof messageData.encrypted_text === 'string' ? messageData.encrypted_text.length : null,
+        ciphertextB64Len: typeof messageData.ciphertext_b64 === 'string' ? messageData.ciphertext_b64.length : null,
+        ivLen: typeof messageData.iv === 'string' ? messageData.iv.length : null,
+        tagLen: typeof messageData.auth_tag === 'string' ? messageData.auth_tag.length : null,
+      });
+
+
       try {
         const cryptoUtils = await import('../utils/crypto.js');
+        // New format: server stores combined ciphertext||tag into encrypted_text,
+        // and auth_tag is intentionally empty.
+        // decryptMessage() expects (encrypted_text, iv, auth_tag, myPriv, senderPub, ciphertext_b64)
+        const ciphertextB64 = messageData.ciphertext_b64 || messageData.encrypted_text;
+
+        // If we have an IV + either ciphertext_b64 or encrypted_text(combined), decrypt via new format.
+        if (ciphertextB64 && typeof ciphertextB64 === 'string' && ciphertextB64 !== 'null') {
+          return await cryptoUtils.decryptMessage(
+            messageData.encrypted_text,
+            messageData.iv,
+            messageData.auth_tag || null,
+            privKey,
+            decryptPubkey,
+            ciphertextB64
+          );
+        }
+
+        // Legacy fallback: encrypted_text + auth_tag split.
         return await cryptoUtils.decryptMessage(
           messageData.encrypted_text,
           messageData.iv,
           messageData.auth_tag,
           privKey,
-          decryptPubkey
+          decryptPubkey,
+          null
         );
+
       } catch (e) {
-        console.error('Decrypt error:', e);
+        console.error('Decrypt error (first attempt):', e);
+
+        // Retry once with pubkey freshly fetched even if decryptPubkey existed but wrong/null
+        try {
+          const friendId = isOwnMessage ? messageData.receiver_id : messageData.sender_id;
+          const token = localStorage.getItem('token');
+          const res = await axios.get(`${server}/users/public-key/${friendId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const freshPub = res.data?.publicKey;
+          console.log('[E2EE] decrypt retry with fetched pubkey', { friendId, freshPubPresent: !!freshPub });
+
+          if (freshPub && freshPub !== 'null') {
+            const cryptoUtils = await import('../utils/crypto.js');
+            const retryCipherB64 = messageData.ciphertext_b64 || messageData.encrypted_text;
+            return await cryptoUtils.decryptMessage(
+              messageData.encrypted_text,
+              messageData.iv,
+              messageData.auth_tag || null,
+              privKey,
+              freshPub,
+              retryCipherB64
+            );
+          }
+        } catch (retryErr) {
+          console.error('Decrypt retry failed:', retryErr);
+        }
+
         return 'Message could not be decrypted';
       }
-    } else {
-      console.warn('Socket message missing decrypt data:', {
-        hasPrivateKey: !!privKey,
-        decryptPubkey,
-        isOwn: isOwnMessage
-      });
-      return messageData.message || 'Message could not be decrypted';
     }
+
+    console.warn('Socket message missing decrypt data:', {
+      hasPrivateKey: !!privKey,
+      hasCiphertext: !!messageData.encrypted_text,
+      hasIV: !!messageData.iv,
+      hasAuthTag: !!messageData.auth_tag,
+      decryptPubkey,
+      isOwn: isOwnMessage
+    });
+    return messageData.message || 'Message could not be decrypted';
+
   };
 
   useEffect(() => {
@@ -312,10 +385,21 @@ if (privateKeyRaw) {
           }
           
           const decryptPubkey = msg.sender_id === currentUser.id ? msg.receiver_pubkey : msg.sender_pubkey;
-          if (privateKeyRaw && msg.encrypted_text && msg.iv && msg.auth_tag && decryptPubkey) {
+
+          // Ensure pubkey is valid before attempting E2EE decrypt — old messages pre-E2EE have null pubkeys
+          if (privateKeyRaw && msg.encrypted_text && msg.iv && decryptPubkey && decryptPubkey !== 'null' && decryptPubkey !== null) {
             try {
+              // New format: backend stores ciphertext||tag (combined) into encrypted_text,
+              // while auth_tag is stored as '' (empty). So do NOT require msg.auth_tag.
+              const ciphertextB64 = msg.ciphertext_b64 || msg.encrypted_text;
+
               msg.decrypted_text = await cryptoUtils.decryptMessage(
-                msg.encrypted_text, msg.iv, msg.auth_tag, privateKeyRaw, decryptPubkey
+                msg.encrypted_text,
+                msg.iv,
+                msg.auth_tag || null,
+                privateKeyRaw,
+                decryptPubkey,
+                ciphertextB64
               );
             } catch (e) {
               console.error('Initial load decrypt error:', e);
@@ -355,6 +439,17 @@ if (privateKeyRaw) {
 
     const token = localStorage.getItem('token');
     let payload = { senderId: currentUser.id, receiverId: selectedChat.id };
+    // Default decryption-compatible payload fields
+    payload.ciphertext_b64 = null;
+    payload.encrypted_text = null;
+    payload.iv = null;
+    payload.auth_tag = null;
+    // Ensure backend receives at least one decryptable format
+    // (either encrypted_text/iv/auth_tag legacy, or ciphertext_b64)
+    let ciphertext_b64 = null;
+    let encrypted_text = null;
+    let iv = null;
+    let auth_tag = null;
     let sendFallback = false;
 
     if (privateKeyRaw && selectedFriendPubKey) {
@@ -362,12 +457,32 @@ if (privateKeyRaw) {
         const cryptoUtils = await import('../utils/crypto.js');
         const encrypted = await cryptoUtils.encryptMessage(plaintext, privateKeyRaw, selectedFriendPubKey);
 
-        if (!encrypted || !encrypted.encrypted_text || !encrypted.iv || !encrypted.auth_tag) {
-          console.error('Encryption returned invalid data:', encrypted);
+        // Support new ciphertext_b64 format
+        const hasCipherNew = encrypted && encrypted.ciphertext_b64 && encrypted.ciphertext_b64 !== 'null';
+        const hasOld = encrypted && encrypted.encrypted_text && encrypted.iv && encrypted.auth_tag;
+
+        // Back-end requires either full legacy set OR ciphertext_b64.
+        const shouldSendE2EE = hasCipherNew || hasOld;
+
+        if (!encrypted || !shouldSendE2EE) {
+          console.error('Encryption returned invalid/partial data:', {
+            encrypted,
+            hasCipherNew,
+            hasOld
+          });
           sendFallback = true;
         } else {
           Object.assign(payload, encrypted);
+
+          // If using ciphertext_b64 format, ensure auth_tag is not required on server side.
+          // (server checks only encrypted_text+iv+auth_tag OR plainMessage)
+          if (hasCipherNew && !payload.auth_tag) {
+            // Keep legacy fields unset so server won't reject partial data.
+            payload.encrypted_text = payload.encrypted_text || null;
+          }
         }
+
+
       } catch (encErr) {
         console.error('Encryption failed:', encErr);
         sendFallback = true;
@@ -378,16 +493,29 @@ if (privateKeyRaw) {
 
     if (sendFallback) {
       payload.plainMessage = plaintext;
+      // Ensure backend sees plainMessage as non-empty
+      if (!payload.plainMessage || payload.plainMessage.trim().length === 0) {
+        payload.plainMessage = ' '; // backend trims; this should never happen
+      }
+      // Hard remove partial E2EE fields so backend falls into plainMessage path
+      payload.encrypted_text = null;
+      payload.iv = null;
+      payload.auth_tag = null;
+      payload.ciphertext_b64 = null;
     }
 
-    console.log('Sending message payload:', {
+
+    console.log('Sending message payload (raw):', payload);
+    console.log('Sending message payload (summary):', {
       senderId: payload.senderId,
       receiverId: payload.receiverId,
       hasEncrypted: !!payload.encrypted_text,
       hasIV: !!payload.iv,
       hasAuthTag: !!payload.auth_tag,
+      hasCiphertextB64: !!payload.ciphertext_b64,
       hasPlain: !!payload.plainMessage
     });
+
 
     try {
       const res = await axios.post(`${server}/messages`, payload, { headers: { Authorization: `Bearer ${token}` } });

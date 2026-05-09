@@ -22,6 +22,16 @@ exports.getMessages = async (req, res) => {
       [userId, friendId, friendId, userId]
     );
 
+    // Preferred decrypt path on the client expects ciphertext_b64.
+    // In our storage for new format, encrypted_text already contains base64(ciphertext||tag).
+    for (const m of messages) {
+      m.ciphertext_b64 = m.encrypted_text || null;
+    }
+
+
+
+
+
     // Mark as read
     await db.execute(
       'UPDATE messages SET is_read = TRUE WHERE receiver_id = ? AND sender_id = ? AND is_read = FALSE',
@@ -38,31 +48,52 @@ exports.getMessages = async (req, res) => {
 // Send E2EE message (ciphertext + metadata only)
 exports.sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, encrypted_text, iv, auth_tag, plainMessage } = req.body;
+    const {
+      senderId,
+      receiverId,
+      encrypted_text,
+      iv,
+      auth_tag,
+      ciphertext_b64,
+      plainMessage
+    } = req.body;
 
     // Robust validation - check for empty strings and null
     if (!senderId || !receiverId) {
       return res.status(400).json({ success: false, message: 'User IDs required' });
     }
-    
-    // Check for E2EE data OR plainMessage fallback
-    const hasE2EE = encrypted_text && typeof encrypted_text === 'string' && encrypted_text.trim().length > 0 &&
-                   iv && typeof iv === 'string' && iv.trim().length > 0 &&
-                   auth_tag && typeof auth_tag === 'string' && auth_tag.trim().length > 0;
+
+    // Accept either:
+    // 1) Legacy: encrypted_text + iv + auth_tag
+    // 2) New: ciphertext_b64 + iv  (server will split ciphertext_b64 into encrypted_text+auth_tag)
+    // 3) plainMessage fallback (degraded)
+    const hasLegacyE2EE =
+      encrypted_text && typeof encrypted_text === 'string' && encrypted_text.trim().length > 0 &&
+      iv && typeof iv === 'string' && iv.trim().length > 0 &&
+      auth_tag && typeof auth_tag === 'string' && auth_tag.trim().length > 0;
+
+    const hasNewE2EE =
+      ciphertext_b64 && typeof ciphertext_b64 === 'string' && ciphertext_b64.trim().length > 0 &&
+      iv && typeof iv === 'string' && iv.trim().length > 0;
+
     const hasPlain = plainMessage && typeof plainMessage === 'string' && plainMessage.trim().length > 0;
-    
-    if (!hasE2EE && !hasPlain) {
-      console.error('SendMessage: missing E2EE data AND plainMessage');
+
+    if (!hasLegacyE2EE && !hasNewE2EE && !hasPlain) {
+      console.error('SendMessage: missing E2EE data AND plainMessage', {
+        hasLegacyE2EE,
+        hasNewE2EE,
+        hasPlain
+      });
       return res.status(400).json({ success: false, message: 'Either encrypted text OR plain message required' });
     }
-    
+
     // If no E2EE, use plainMessage fallback (degraded mode)
     let encText = encrypted_text;
     let ivText = iv;
     let tagText = auth_tag;
     let msgContent = plainMessage;
-    
-if (!hasE2EE && hasPlain) {
+
+    if (!hasLegacyE2EE && hasPlain) {
       // Use plain message - encode as base64 for fallback
       // This is NOT truly encrypted - just base64 encoded for storage
       console.warn('Using plainMessage fallback - message not E2EE');
@@ -71,6 +102,17 @@ if (!hasE2EE && hasPlain) {
       tagText = 'ZmFsbGJhY2s='; // 'fallback' in base64
       msgContent = plainMessage;
     }
+
+    if (!hasLegacyE2EE && hasNewE2EE) {
+      // Client sends ciphertext_b64 = base64(ciphertext||authTag) (AES-GCM) [preferred format]
+      // To avoid any ciphertext splitting/reconstruction mismatches, store the combined payload directly:
+      // - DB encrypted_text  := ciphertext_b64 (combined ciphertext||tag, still base64)
+      // - DB auth_tag        := '' (intentionally blank)
+      encText = ciphertext_b64;
+      tagText = '';
+      msgContent = null;
+    }
+
 
     // Fetch receiver fingerprint for audit
     const [receiverRows] = await db.execute('SELECT public_key_fingerprint FROM users WHERE id = ?', [receiverId]);
@@ -85,7 +127,9 @@ if (!hasE2EE && hasPlain) {
     const [messages] = await db.execute(
       `SELECT m.id, m.sender_id, m.receiver_id, m.encrypted_text, m.iv, m.auth_tag, m.is_read, m.created_at,
               sender.fullName as senderName, sender.public_key as sender_pubkey,
-              receiver.fullName as receiverName, receiver.public_key as receiver_pubkey
+              sender.public_key_fingerprint as sender_fingerprint,
+              receiver.fullName as receiverName, receiver.public_key as receiver_pubkey,
+              receiver.public_key_fingerprint as receiver_fingerprint
        FROM messages m
        JOIN users sender ON m.sender_id = sender.id
        JOIN users receiver ON m.receiver_id = receiver.id
@@ -93,7 +137,13 @@ if (!hasE2EE && hasPlain) {
       [result.insertId]
     );
 
+
     const newMessage = messages[0];
+
+    // Preferred decrypt path on the client expects ciphertext_b64.
+    // In our storage for new format, encrypted_text already contains base64(ciphertext||tag).
+    newMessage.ciphertext_b64 = newMessage.encrypted_text || null;
+
 
     // Notification (safe, no content)
     const NotificationModel = require('../models/notificationModel');
@@ -109,15 +159,23 @@ if (!hasE2EE && hasPlain) {
 
 // Socket emit (ciphertext only) - FULL E2EE data for client decrypt
     if (global.io) {
+      // Ensure client always has pubkeys to derive shared secret
+      const senderPub = newMessage.sender_pubkey || null;
+      const receiverPub = newMessage.receiver_pubkey || null;
+
       console.log('📤 EMIT newMessage:', senderId, '->', receiverId);
-      console.log('   sender_pubkey:', newMessage.sender_pubkey ? 'present' : 'NULL');
-      console.log('  receiver_pubkey:', newMessage.receiver_pubkey ? 'present' : 'NULL');
+      console.log('   sender_pubkey:', senderPub ? 'present' : 'NULL');
+      console.log('  receiver_pubkey:', receiverPub ? 'present' : 'NULL');
+
       global.io.to(senderId.toString()).to(receiverId.toString()).emit('newMessage', {
         ...newMessage,
-        sender_pubkey: newMessage.sender_pubkey || null,
-        receiver_pubkey: newMessage.receiver_pubkey || null,
+        ciphertext_b64: newMessage.ciphertext_b64 || null,
+        sender_pubkey: senderPub,
+        receiver_pubkey: receiverPub,
         room: `${Math.min(senderId, receiverId)}-${Math.max(senderId, receiverId)}`
       });
+      
+
       
       global.io.to(receiverId.toString()).emit('newNotification', {
         id: newMessage.id,

@@ -3,10 +3,47 @@ import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { io } from 'socket.io-client';
-import { FaUserPlus, FaComment, FaHeart, FaPaperPlane, FaShare, FaBell } from 'react-icons/fa';
+import { FaUserPlus, FaComment, FaHeart, FaPaperPlane, FaShare, FaBell, FaCheck, FaTimes } from 'react-icons/fa';
 import Navbar from '../Components/Navbar';
 import '../Styles/Notifications.css';
 import { server } from '../../server.js';
+
+// Utility function to format time ago
+const timeAgo = (dateString) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+
+  const intervals = [
+    { label: 'year', seconds: 31536000 },
+    { label: 'month', seconds: 2592000 },
+    { label: 'week', seconds: 604800 },
+    { label: 'day', seconds: 86400 },
+    { label: 'hour', seconds: 3600 },
+    { label: 'minute', seconds: 60 },
+    { label: 'second', seconds: 1 }
+  ];
+
+  for (const interval of intervals) {
+    const count = Math.floor(seconds / interval.seconds);
+    if (count >= 1) {
+      return `${count} ${interval.label}${count > 1 ? 's' : ''} ago`;
+    }
+  }
+
+  return 'Just now';
+};
+
+// Skeleton component for loading state
+const SkeletonNotification = () => (
+  <div className="skeleton-card">
+    <div className="skeleton skeleton-icon"></div>
+    <div className="skeleton-content">
+      <div className="skeleton skeleton-line long"></div>
+      <div className="skeleton skeleton-line short"></div>
+    </div>
+  </div>
+);
 
 const Notifications = () => {
   const [notifications, setNotifications] = useState([]);
@@ -42,7 +79,7 @@ const Notifications = () => {
   useEffect(() => {
     if (socket && currentUser) {
       socket.on('newNotification', (notification) => {
-        setNotifications(prev => [notification, ...prev]);
+        setNotifications(prev => [{ ...notification, isNew: true }, ...prev]);
         setUnreadCount(prev => prev + 1);
         toast.info(notification.title, { 
           toastId: `notif-${notification.id}`,
@@ -102,7 +139,7 @@ const Notifications = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setNotifications(prev => prev.map(n => 
-        n.id === notificationId ? { ...n, is_read: true } : n
+        n.id === notificationId ? { ...n, is_read: true, isNew: false } : n
       ));
       setUnreadCount(prev => Math.max(0, prev - 1));
       
@@ -125,8 +162,9 @@ const Notifications = () => {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true, isNew: false })));
       setUnreadCount(0);
+      toast.success('All notifications marked as read!');
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -142,13 +180,27 @@ const Notifications = () => {
       );
       toast.success('Friend request accepted!');
       setNotifications(prev => prev.filter(n => n.id !== notification.id));
+      setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
       toast.error('Failed to accept friend request');
     }
   };
 
+  const handleDismiss = async (notificationId, e) => {
+    e.stopPropagation();
+    // Add dismiss animation
+    const element = document.getElementById(`notif-${notificationId}`);
+    if (element) {
+      element.classList.add('dismissing');
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      }, 300);
+    }
+    await handleMarkRead(notificationId);
+  };
+
   const getIconComponent = (type) => {
-    const size = '1.5rem';
+    const size = '1.25rem';
     switch (type) {
       case 'friend_request': return <FaUserPlus size={size} />;
       case 'message': return <FaPaperPlane size={size} />;
@@ -177,8 +229,14 @@ const Notifications = () => {
       <>
         <Navbar />
         <div className="notifications-page">
-          <h1 className="notifications-title">Notifications</h1>
-          <p>Please login to view your notifications</p>
+          <div className="notifications-header">
+            <h1 className="notifications-title">Notifications</h1>
+          </div>
+          <div className="no-notifications">
+            <div className="no-notifications-icon">🔐</div>
+            <h3>Please login to view your notifications</h3>
+            <p>Sign in to see updates from your friends</p>
+          </div>
         </div>
       </>
     );
@@ -195,13 +253,20 @@ const Notifications = () => {
           </h1>
           {unreadCount > 0 && (
             <button className="btn-notification btn-read" onClick={handleMarkAllRead}>
+              <FaCheck style={{ marginRight: '5px' }} />
               Mark all read
             </button>
           )}
         </div>
 
         {loading ? (
-          <div className="loading">Loading notifications...</div>
+          <div className="notifications-list">
+            <SkeletonNotification />
+            <SkeletonNotification />
+            <SkeletonNotification />
+            <SkeletonNotification />
+            <SkeletonNotification />
+          </div>
         ) : notifications.length === 0 ? (
           <div className="no-notifications">
             <div className="no-notifications-icon">🔔</div>
@@ -213,24 +278,28 @@ const Notifications = () => {
             {notifications.map((notification, index) => (
               <div
                 key={notification.id}
+                id={`notif-${notification.id}`}
                 ref={index === notifications.length - 1 ? lastNotificationRef : null}
-                className={`notification-item ${notification.is_read ? 'read' : 'unread'}`}
+                className={`notification-item ${notification.is_read ? 'read' : 'unread'} ${notification.isNew ? 'new' : ''}`}
+                style={{ animationDelay: `${index * 0.05}s` }}
                 onClick={() => !notification.is_read && handleMarkRead(notification.id)}
               >
                 <div className={getIconClass(notification.type)}>
                   {getIconComponent(notification.type)}
                 </div>
-                <div className="notification-content">
+<div className="notification-content">
                   <div className="notification-title-text">{notification.title}</div>
                   {notification.body && (
                     <div className="notification-body">{notification.body}</div>
                   )}
                   {notification.postContent && (
-                    <div className="notification-body">"{notification.postContent.substring(0, 100)}..."</div>
+                    <div className="notification-message-content">
+                      <p>"{notification.postContent.substring(0, 100)}..."</p>
+                    </div>
                   )}
                   <div className="notification-meta">
                     <span className="notification-time">
-                      {new Date(notification.created_at).toLocaleString()}
+                      {timeAgo(notification.created_at)}
                     </span>
                   </div>
                 </div>
@@ -243,16 +312,13 @@ const Notifications = () => {
                         handleAcceptFriendRequest(notification);
                       }}
                     >
-                      Accept
+                      <FaCheck /> Accept
                     </button>
                     <button 
                       className="btn-notification btn-decline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMarkRead(notification.id);
-                      }}
+                      onClick={(e) => handleDismiss(notification.id, e)}
                     >
-                      Dismiss
+                      <FaTimes /> Dismiss
                     </button>
                   </div>
                 )}
@@ -282,4 +348,3 @@ const Notifications = () => {
 };
 
 export default Notifications;
-

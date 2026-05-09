@@ -56,7 +56,8 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   width: 1350px;
   margin: 0;
-  margin-left: 15px;
+  /* margin-left: 10px; */
+  
 }
 
 .dashboard-header {
